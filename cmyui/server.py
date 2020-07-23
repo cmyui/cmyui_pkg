@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import socket
-from typing import Iterator, Tuple, Any
+from typing import Generator, Tuple, Any
 
 from .types import Address
 from .connection import Connection
@@ -31,7 +31,7 @@ class Server:
         pass
 
     def listen(self, addr: Address = ('127.0.0.1', 5001),
-               max_conns: int = 5) -> Iterator[Connection]:
+               max_conns: int = 5) -> Generator[Connection, None, None]:
 
         if using_unix := self.sock_family == socket.AF_UNIX:
             if not isinstance(addr, str):

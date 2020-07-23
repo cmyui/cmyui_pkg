@@ -7,7 +7,7 @@ own convenience and use, although others are free to
 use and contribute, of course!
 
 Source:
-https://github.com/cmyui/cmyui
+https://github.com/cmyui/cmyui_pkg
 
 :copyright: (c) 2020 cmyui
 :license: MIT, see LICENSE for details.
