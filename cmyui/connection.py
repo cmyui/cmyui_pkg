@@ -65,41 +65,43 @@ class Request:
 
             for form_part in self.body.split(b'--' + boundary)[1:]:
                 # TODO len checks? will think abt it
-                if form_part[:2] != b'\r\n': # This shouldn't happen?
+                if form_part[:2] != b'\r\n':
                     continue
 
                 param_lines = form_part[2:].split(b'\r\n', 3)
                 if len(param_lines) < 4:
                     continue
 
-                if not param_lines[0].startswith(
-                b'Content-Disposition: form-data'):
+                attrs_line, type_line = (s.decode() for s in param_lines[:2])
+
+                if not attrs_line.startswith('Content-Disposition: form-data') \
+                or not type_line.startswith('Content-Type: image/png'):
                     continue
 
-                # XXX: unfinished
+                if ';' in attrs_line:
+                    # Line has attributes in `k="v"` fmt,
+                    # each delimited by ` ;`.
+                    # We split by `;` and lstrip the key
+                    # to allow for a `;` delimiter.
+                    attrs = {k.lstrip(): v[1:-1] for k, v in (
+                        a.split('=', 1) for a in attrs_line.split(';')[1:]
+                    )}
+                else:
+                    attrs = {}
 
-                #tags = {k: v.replace('"', '') for k, v in (x.split('=') for x in s[0].decode().split('; ')[1:])}
-                #if 'name' not in tags:
-                #    continue
+                if 'name' not in attrs:
+                    # Can't really make a k:v pair out of this?
+                    print(param_lines)
+                    continue
 
-                #if tags['name'] in self.args and tags['name'] == 'score':
-                #    print(1)
+                # Link attrs.name to the actual form part's data.
+                self.args.update({attrs['name']: param_lines[3]})
 
-                #self.args.update({tags['name']: s[2]})
-
-                #if self.args:
-                #    print(1)
-
-                ...
-
-                #_args = self.body.split(boundary + b'\r\nContent-Disposition: form-data; name="')
-                #self.args = {k: v for k, v in (i[:-4].split(b'"\r\n\r\n') for i in _args[1:])}
-                #print(1)
-                #self.args = {k: v for k, v in (i[40:-4].split(b'"\r\n\r\n') for i in _args)}
-                #if not self.args:
-                #    print(1)
+                for k, v in attrs.items():
+                    if k != 'name':
+                        self.args.update({k: v})
         else:
-            raise Exception('invalid http cmd?')
+            raise Exception(f'Unsupported HTTP command: {self.cmd}')
 
 class Response:
     __slots__ = ('sock', 'headers')
@@ -143,5 +145,4 @@ class Connection: # will probably end up removing addr?
                 # No growth
                 break
 
-        print(f'len: {len(data)}')
         return data

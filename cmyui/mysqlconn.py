@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncio
-import aiomysql
+#import aiomysql
 from mysql.connector.pooling import MySQLConnectionPool
 from typing import Tuple, Optional, Union
 
