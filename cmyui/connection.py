@@ -42,10 +42,21 @@ http_statuses: Final[Dict[int, str]] = {
 }
 
 class Request:
-    __slots__ = ('headers', 'body', 'data', 'cmd', 'uri', 'httpver', 'args')
+    __slots__ = ('headers', 'body', 'data', 'cmd',
+                 'uri', 'httpver', 'args', 'files')
 
     def __init__(self, data: bytes):
         self.data = data
+
+        self.headers = []
+        self.body = b''
+        self.cmd = ''
+        self.uri = ''
+        self.httpver = 0.0
+
+        self.args = defaultdict(lambda: None)
+        self.files = defaultdict(lambda: None)
+
         self.parse_http_request()
 
     def parse_http_request(self) -> None:
@@ -75,23 +86,20 @@ class Request:
             # If our request has arguments, parse them.
             if (p_start := full_uri.find('?')) != -1:
                 self.uri = full_uri[:p_start]
-                self.args = defaultdict(lambda: None, {k: v for k, v in (
-                    i.split('=') for i in full_uri[p_start + 1:].split('&')
-                )})
+                for k, v in (i.split('=') for i in full_uri[p_start + 1:].split('&')):
+                    self.args.update({k: v})
             else:
-                self.uri, self.args = full_uri, {}
+                self.uri = full_uri
         elif self.cmd == 'POST':
             self.uri = full_uri
 
             if not (ct := self.headers['Content-Type']) \
             or not ct.startswith('multipart/form-data'):
-                self.args = {}
                 return # Non-multipart POST
 
             # Parse multipartform data into args.
             # Very sketch method, i'm not a fan of multipart forms..
             boundary = ct.split('=')[1].encode()
-            self.args = {}
 
             for form_part in self.body.split(b'--' + boundary)[1:]:
                 # TODO len checks? will think abt it
@@ -99,9 +107,19 @@ class Request:
                     continue
 
                 param_lines = form_part[2:].split(b'\r\n', 3)
-                if (data_line_idx := len(param_lines) - 1) < 3:
+                if len(param_lines) < 1:
                     raise Exception('Malformed line in multipart form-data.')
                     #continue
+
+                # Find idx manually
+                data_line_idx = 0
+                for idx, l in enumerate(param_lines):
+                    if not l:
+                        data_line_idx = idx + 1
+                        break
+
+                if data_line_idx == 0:
+                    continue
 
                 # XXX: type_line is currently unused, but it
                 # can contain the content-type of the param,
@@ -109,26 +127,24 @@ class Request:
                 attrs_line, type_line = (s.decode() for s in param_lines[:2])
 
                 if not attrs_line.startswith('Content-Disposition: form-data'):
-                    raise Exception('What?') # XXX: temporary
-
-                if ';' in attrs_line:
-                    # Line has attributes in `k="v"` fmt,
-                    # each delimited by ` ;`.
-                    # We split by `;` and lstrip the key
-                    # to allow for a `;` delimiter.
-                    attrs = {k.lstrip(): v[1:-1] for k, v in (
-                        a.split('=', 1) for a in attrs_line.split(';')[1:]
-                    )}
-                else:
-                    attrs = {}
-
-                if 'name' not in attrs:
-                    # Can't really make a k:v pair out of this?
-                    print(param_lines)
                     continue
 
-                # Link attrs.name to the actual form part's data.
-                self.args.update({attrs['name']: param_lines[data_line_idx]})
+                if ';' not in attrs_line:
+                    continue
+
+                # Line has attributes in `k="v"` fmt, each
+                # delimited by ` ;`. We split by `;` and
+                # lstrip the key to allow for a `;` delimiter.
+                attrs = {k.lstrip(): v[1:-1] for k, v in (
+                    a.split('=', 1) for a in attrs_line.split(';')[1:]
+                )}
+
+                if 'filename' in attrs:
+                    self.files.update({attrs['filename']: param_lines[data_line_idx]})
+                elif 'name' in attrs:
+                    self.args.update({attrs['name']: param_lines[data_line_idx]})
+                else:
+                    continue
 
                 # Link all other attrs to their respective values.
                 for k, v in attrs.items():
