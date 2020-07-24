@@ -2,15 +2,44 @@
 
 from socket import socket
 from collections import defaultdict
+from typing import Final, Dict
 
 from .types import Address
 
 __all__ = (
+    'http_statuses',
     'Connection',
     'Request',
     'Response'
 )
 
+http_statuses: Final[Dict[int, str]] = {
+    # Informational
+    100: 'CONTINUE',
+    101: 'SWITCHING PROTOCOLS',
+    102: 'PROCESSING',
+
+    # Success
+    200: 'OK',
+
+    # Redirection
+    307: 'TEMPORARY REDIRECT',
+    308: 'PERMANENT REDIRECT',
+
+    # Client Error
+    400: 'BAD REQUEST',
+    401: 'UNAUTHORIZED',
+    402: 'PAYMENT REQUIRED',
+    403: 'FORBIDDEN',
+    404: 'NOT FOUND',
+
+    # Server Error
+    500: 'INTERNAL SERVER ERROR',
+    501: 'NOT IMPLEMENTED',
+    502: 'BAD GATEWAY',
+    503: 'SERVICE UNAVAILABLE',
+    504: 'GATEWAY TIMEOUT'
+}
 class Request:
     __slots__ = ('headers', 'body', 'data', 'cmd', 'uri', 'httpver', 'args')
 
@@ -21,7 +50,6 @@ class Request:
     def parse_http_request(self) -> None:
         # Retrieve http request line from content.
         req_line, after_req_line = self.data.split(b'\r\n', 1)
-
         self.cmd, full_uri, _httpver = req_line.decode().split(' ')
 
         if len(_httpver) != 8 \
@@ -56,7 +84,8 @@ class Request:
 
             if not (ct := self.headers['Content-Type']) \
             or not ct.startswith('multipart/form-data'):
-                raise Exception('non-multipart POST')
+                self.args = {}
+                return # Non-multipart POST
 
             # Parse multipartform data into args.
             # Very sketch method, i'm not a fan of multipart forms..
@@ -69,14 +98,17 @@ class Request:
                     continue
 
                 param_lines = form_part[2:].split(b'\r\n', 3)
-                if len(param_lines) < 4:
-                    continue
+                if (data_line_idx := len(param_lines) - 1) < 3:
+                    raise Exception('Malformed line in multipart form-data.')
+                    #continue
 
+                # XXX: type_line is currently unused, but it
+                # can contain the content-type of the param,
+                # such as `Content-Type: image/png`.
                 attrs_line, type_line = (s.decode() for s in param_lines[:2])
 
-                if not attrs_line.startswith('Content-Disposition: form-data') \
-                or not type_line.startswith('Content-Type: image/png'):
-                    continue
+                if not attrs_line.startswith('Content-Disposition: form-data'):
+                    raise Exception('What?') # XXX: temporary
 
                 if ';' in attrs_line:
                     # Line has attributes in `k="v"` fmt,
@@ -95,8 +127,9 @@ class Request:
                     continue
 
                 # Link attrs.name to the actual form part's data.
-                self.args.update({attrs['name']: param_lines[3]})
+                self.args.update({attrs['name']: param_lines[data_line_idx]})
 
+                # Link all other attrs to their respective values.
                 for k, v in attrs.items():
                     if k != 'name':
                         self.args.update({k: v})
@@ -116,16 +149,12 @@ class Response:
     def send(self, data: bytes, code: int = 200) -> None:
         # Insert HTTP response line & content
         # length at the beginning of the headers.
-        self.headers.insert(
-            0, 'HTTP/1.1 ' + {
-                200: '200 OK',
-                404: '404 NOT FOUND'
-            }[code])
+        self.headers.insert(0, f'HTTP/1.1 {code} {http_statuses[code]}')
         self.headers.insert(1, f'Content-Length: {len(data)}')
         try:
             self.sock.send('\r\n'.join(self.headers).encode() + b'\r\n\r\n' + data)
         except BrokenPipeError:
-            print('\x1b[1;91mConnection pipe broken.\x1b[0m')
+            print('\x1b[1;91mWARN: Connection pipe broken.\x1b[0m')
 
 class Connection: # will probably end up removing addr?
     __slots__ = ('request', 'response', 'addr')
