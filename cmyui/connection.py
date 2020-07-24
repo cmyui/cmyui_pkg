@@ -40,6 +40,7 @@ http_statuses: Final[Dict[int, str]] = {
     503: 'SERVICE UNAVAILABLE',
     504: 'GATEWAY TIMEOUT'
 }
+
 class Request:
     __slots__ = ('headers', 'body', 'data', 'cmd', 'uri', 'httpver', 'args')
 

@@ -12,40 +12,6 @@ __all__ = (
     #'AsyncMySQLPool'
 )
 
-# Should work, just disabled since
-# there's no async server yet xd.
-'''
-class AsyncMySQLPool:
-    __slots__ = ('conn',)
-
-    async def __init__(self, **kwargs):
-        self.conn = await aiomysql.connect(**kwargs)
-
-    async def execute(self, query: str, params: SQLParams
-                     ) -> int:
-        cur: aiomysql.Cursor = await self.conn.cursor()
-        await cur.execute(query)
-        #cur._clear_result()? cur.fetchmany()?
-        ret = cur.lastrowid
-
-        await cur.close()
-        return ret
-
-    async def fetch(self, query: str, params: SQLParams, _all: bool = False
-                   ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
-        cur: aiomysql.Cursor = await self.conn.cursor()
-        await cur.execute(query)
-        if not (res := (cur.fetchall if _all else cur.fetchone)()):
-            print('SQLError: No rows in result set.')
-            return None
-
-        await cur.close()
-
-    async def fetchall(self, query: str, params: SQLParams
-                      ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
-        return await self.fetch(query, params, _all = True)
-'''
-
 class MySQLPool:
     __slots__ = ('conn',)
 
@@ -90,3 +56,38 @@ class MySQLPool:
     def fetchall(self, query: str, params: SQLParams
                 ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
         return self.fetch(query, params, _all = True)
+
+
+# Should work, just disabled since
+# there's no async server yet xd.
+'''
+class AsyncMySQLPool:
+    __slots__ = ('conn',)
+
+    async def __init__(self, **kwargs):
+        self.conn = await aiomysql.connect(**kwargs)
+
+    async def execute(self, query: str, params: SQLParams
+                     ) -> int:
+        cur: aiomysql.Cursor = await self.conn.cursor()
+        await cur.execute(query)
+        #cur._clear_result()? cur.fetchmany()?
+        ret = cur.lastrowid
+
+        await cur.close()
+        return ret
+
+    async def fetch(self, query: str, params: SQLParams, _all: bool = False
+                   ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
+        cur: aiomysql.Cursor = await self.conn.cursor()
+        await cur.execute(query)
+        if not (res := (cur.fetchall if _all else cur.fetchone)()):
+            print('SQLError: No rows in result set.')
+            return None
+
+        await cur.close()
+
+    async def fetchall(self, query: str, params: SQLParams
+                      ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
+        return await self.fetch(query, params, _all = True)
+'''
