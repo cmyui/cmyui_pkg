@@ -17,11 +17,11 @@ __title__ = 'cmyui'
 __author__ = 'cmyui'
 __license__ = 'MIT'
 __copyright__ = 'Copyright 2020 cmyui'
-__version__ = '1.0.2'
+__version__ = '1.0.4'
 
 from .connection import *
 from .mysqlconn import *
 from .packetstream import *
 from .server import *
 from .types import *
-from .utils import *
+from .version import *
