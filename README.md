@@ -1,6 +1,6 @@
 A general library of classes I find myself rewriting time and time again.
 
-# Usage examples.
+# Some use cases
 1. Hosting a simple socket server (INET & UNIX).
 ```py
 from socket import AF_INET, SOCK_STREAM

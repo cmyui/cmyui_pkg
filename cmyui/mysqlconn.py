@@ -16,13 +16,7 @@ class MySQLPool:
     __slots__ = ('conn',)
 
     def __init__(self, **kwargs):
-        self.conn = MySQLConnectionPool(
-            pool_name = 'basic_server',
-            pool_size = kwargs.get('pool_size', 5),
-            pool_reset_session = True,
-            autocommit = True,
-            **kwargs
-        )
+        self.conn = MySQLConnectionPool(autocommit = True, **kwargs)
 
     def execute(self, query: str, params: SQLParams) -> int:
         if not (cnx := self.conn.get_connection()):
@@ -39,7 +33,7 @@ class MySQLPool:
         [x.close() for x in (cursor, cnx)]
         return res
 
-    def fetch(self, query: str, params: SQLParams, _all: bool = False
+    def fetch(self, query: str, params: SQLParams = (), _all: bool = False
              ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
         if not (cnx := self.conn.get_connection()):
             raise Exception('MySQL: Failed to retrieve a worker.')
@@ -53,7 +47,7 @@ class MySQLPool:
         [x.close() for x in (cursor, cnx)]
         return res
 
-    def fetchall(self, query: str, params: SQLParams
+    def fetchall(self, query: str, params: SQLParams = ()
                 ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
         return self.fetch(query, params, _all = True)
 
