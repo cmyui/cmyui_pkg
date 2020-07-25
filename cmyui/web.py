@@ -3,10 +3,11 @@
 from os import path, remove, chmod, name as _name
 from socket import socket, AF_INET, AF_UNIX, SOCK_STREAM
 from collections import defaultdict
+from enum import IntEnum, unique, auto
 from typing import Final, Dict, Generator, Tuple, Union
 
 __all__ = (
-    'http_statuses',
+    'HTTPStatus',
     'Address',
     'Connection',
     'Request',
@@ -14,7 +15,7 @@ __all__ = (
     'TCPServer'
 )
 
-http_statuses: Final[Dict[int, str]] = {
+_httpstatus_str: Final[Dict[int, str]] = {
     # Informational
     100: 'Continue',
     101: 'Switching Protocols',
@@ -41,6 +42,37 @@ http_statuses: Final[Dict[int, str]] = {
     503: 'Service Unavailable',
     504: 'Gateway Timeout'
 }
+
+@unique
+class HTTPStatus(IntEnum):
+    # Informational
+    Continue = 100
+    SwitchingProtocols = 101
+    Processing = 102
+
+    # Success
+    Ok = 200
+
+    # Redirection
+    TemporaryRedirect = 307
+    PermanentRedirect = 308
+
+    # Client Error
+    BadRequest = 400
+    Unauthorized = 401
+    PaymentRequired = 402
+    Forbidden = 403
+    NotFound = 404
+
+    # Server Error
+    InternalServerError = 500
+    NotImplemented = 501
+    BadGateway = 502
+    ServiceUnavailable = 503
+    GatewayTimeout = 504
+
+    def __repr__(self) -> str:
+        return f'{self.value} {_httpstatus_str[self.value]}'
 
 # Will be (host: str, port: int) if INET,
 # or (sock_dir: str) if UNIX.
@@ -141,8 +173,7 @@ class Request:
                 # delimited by ` ;`. We split by `;` and
                 # lstrip the key to allow for a `;` delimiter.
                 attrs = {k.lstrip(): v[1:-1] for k, v in (
-                    a.split('=', 1) for a in attrs_line.split(';')[1:]
-                )}
+                         a.split('=', 1) for a in attrs_line.split(';')[1:])}
 
                 if 'filename' in attrs:
                     self.files.update({attrs['filename']: param_lines[data_line_idx]})
@@ -168,11 +199,12 @@ class Response:
     def add_header(self, header: str) -> None:
         self.headers.append(header)
 
-    def send(self, data: bytes, code: int = 200) -> None:
+    def send(self, data: bytes, status: Union[HTTPStatus, int] = 200) -> None:
         # Insert HTTP response line & content
         # length at the beginning of the headers.
-        self.headers.insert(0, f'HTTP/1.1 {code} {http_statuses[code].upper()}')
+        self.headers.insert(0, f'HTTP/1.1 {HTTPStatus(status).upper()}')
         self.headers.insert(1, f'Content-Length: {len(data)}')
+
         try:
             self.sock.send('\r\n'.join(self.headers).encode() + b'\r\n\r\n' + data)
         except BrokenPipeError:
@@ -190,10 +222,11 @@ class Connection: # will probably end up removing addr?
     def read_data(sock: socket, ch_size: int = 1024) -> bytes:
         data = sock.recv(ch_size)
 
+        # Read in `ch_size` byte chunks until there
+        # was no change in size between reads.
         while (l := len(data)) % ch_size == 0:
             data += sock.recv(ch_size)
             if l == len(data):
-                # No growth
                 break
 
         return data
@@ -201,12 +234,13 @@ class Connection: # will probably end up removing addr?
 class TCPServer:
     __slots__ = ('addr', 'sock_family', 'listening')
     def __init__(self, addr: Address) -> None:
-        if isinstance(addr, str):
-            if _name == 'nt':
-                raise ValueError('UNIX sockets are not available on Windows.')
+        is_unix = isinstance(addr, tuple) \
+              and len(addr) == 2 \
+              and all(isinstance(i, t) for i, t in zip(addr, (str, int)))
+
+        if is_unix:
             self.sock_family = AF_UNIX
-        elif isinstance(addr, tuple) and len(addr) == 2 and all(
-        isinstance(i, t) for i, t in zip(addr, (str, int))):
+        elif isinstance(addr, str):
             self.sock_family = AF_INET
         else:
             raise Exception('Invalid address.')
