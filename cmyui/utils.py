@@ -1,13 +1,20 @@
 # -*- coding: utf-8 -*-
 
 from typing import Union, Final
+from enum import IntEnum
+from string import ascii_letters, digits
+from random import choice
 
-__all__ = ('isnumeric_weak', 'Ansi', 'printc')
+__all__ = ('isnumeric_weak', 'rstring', 'Ansi', 'printc')
 
 def isnumeric_weak(s: str) -> bool:
     # isnumeric() which works with
     # negative numbers and floats.
     return s.replace('-', '', 1).replace('.', '', 1).isnumeric()
+
+characters = ascii_letters + digits
+def rstring(l: int) -> str:
+    return ''.join((choice(characters) for _ in range(l)))
 
 class Ansi(IntEnum):
     # Default colours

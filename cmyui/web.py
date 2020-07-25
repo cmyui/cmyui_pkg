@@ -202,7 +202,7 @@ class Response:
     def send(self, data: bytes, status: Union[HTTPStatus, int] = 200) -> None:
         # Insert HTTP response line & content
         # length at the beginning of the headers.
-        self.headers.insert(0, f'HTTP/1.1 {HTTPStatus(status).upper()}')
+        self.headers.insert(0, f'HTTP/1.1 {repr(HTTPStatus(status)).upper()}') # suboptimal
         self.headers.insert(1, f'Content-Length: {len(data)}')
 
         try:
@@ -234,14 +234,14 @@ class Connection: # will probably end up removing addr?
 class TCPServer:
     __slots__ = ('addr', 'sock_family', 'listening')
     def __init__(self, addr: Address) -> None:
-        is_unix = isinstance(addr, tuple) \
+        is_inet = isinstance(addr, tuple) \
               and len(addr) == 2 \
               and all(isinstance(i, t) for i, t in zip(addr, (str, int)))
 
-        if is_unix:
-            self.sock_family = AF_UNIX
-        elif isinstance(addr, str):
+        if is_inet:
             self.sock_family = AF_INET
+        elif isinstance(addr, str):
+            self.sock_family = AF_UNIX
         else:
             raise Exception('Invalid address.')
 
