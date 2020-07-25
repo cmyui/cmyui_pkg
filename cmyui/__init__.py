@@ -17,11 +17,9 @@ __title__ = 'cmyui'
 __author__ = 'cmyui'
 __license__ = 'MIT'
 __copyright__ = 'Copyright 2020 cmyui'
-__version__ = '1.0.4'
+__version__ = '1.1.0'
 
-from .connection import *
-from .mysqlconn import *
-from .packetstream import *
-from .server import *
-from .types import *
+from .binary import *
+from .mysql import *
 from .version import *
+from .web import *

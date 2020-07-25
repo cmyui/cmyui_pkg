@@ -3,16 +3,19 @@
 import asyncio
 #import aiomysql
 from mysql.connector.pooling import MySQLConnectionPool
-from typing import Tuple, Optional, Union
-
-from .types import SQLParams, SQLResult
+from typing import Dict, Tuple, Optional, Union
 
 __all__ = (
-    'MySQLPool',
+    'SQLParams',
+    'SQLResult',
+    'SQLPool',
     #'AsyncMySQLPool'
 )
 
-class MySQLPool:
+SQLParams = Tuple[Union[int, float, str]]
+SQLResult = Dict[str, Union[int, float, str]]
+
+class SQLPool:
     __slots__ = ('conn',)
 
     def __init__(self, **kwargs):

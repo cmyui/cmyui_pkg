@@ -1,45 +1,50 @@
 # -*- coding: utf-8 -*-
 
-from socket import socket
+from os import path, remove, chmod, name as _name
+from socket import socket, AF_INET, AF_UNIX, SOCK_STREAM
 from collections import defaultdict
-from typing import Final, Dict
-
-from .types import Address
+from typing import Final, Dict, Generator, Tuple, Union
 
 __all__ = (
     'http_statuses',
+    'Address',
     'Connection',
     'Request',
-    'Response'
+    'Response',
+    'TCPServer'
 )
 
 http_statuses: Final[Dict[int, str]] = {
     # Informational
-    100: 'CONTINUE',
-    101: 'SWITCHING PROTOCOLS',
-    102: 'PROCESSING',
+    100: 'Continue',
+    101: 'Switching Protocols',
+    102: 'Processing',
 
     # Success
-    200: 'OK',
+    200: 'Ok',
 
     # Redirection
-    307: 'TEMPORARY REDIRECT',
-    308: 'PERMANENT REDIRECT',
+    307: 'Temporary Redirect',
+    308: 'Permanent Redirect',
 
     # Client Error
-    400: 'BAD REQUEST',
-    401: 'UNAUTHORIZED',
-    402: 'PAYMENT REQUIRED',
-    403: 'FORBIDDEN',
-    404: 'NOT FOUND',
+    400: 'Bad Request',
+    401: 'Unauthorized',
+    402: 'Payment Required',
+    403: 'Forbidden',
+    404: 'Not Found',
 
     # Server Error
-    500: 'INTERNAL SERVER ERROR',
-    501: 'NOT IMPLEMENTED',
-    502: 'BAD GATEWAY',
-    503: 'SERVICE UNAVAILABLE',
-    504: 'GATEWAY TIMEOUT'
+    500: 'Internal Server Error',
+    501: 'Not Implemented',
+    502: 'Bad Gateway',
+    503: 'Service Unavailable',
+    504: 'Gateway Timeout'
 }
+
+# Will be (host: str, port: int) if INET,
+# or (sock_dir: str) if UNIX.
+Address = Union[Tuple[str, int], str]
 
 class Request:
     __slots__ = ('headers', 'body', 'data', 'cmd',
@@ -166,7 +171,7 @@ class Response:
     def send(self, data: bytes, code: int = 200) -> None:
         # Insert HTTP response line & content
         # length at the beginning of the headers.
-        self.headers.insert(0, f'HTTP/1.1 {code} {http_statuses[code]}')
+        self.headers.insert(0, f'HTTP/1.1 {code} {http_statuses[code].upper()}')
         self.headers.insert(1, f'Content-Length: {len(data)}')
         try:
             self.sock.send('\r\n'.join(self.headers).encode() + b'\r\n\r\n' + data)
@@ -192,3 +197,44 @@ class Connection: # will probably end up removing addr?
                 break
 
         return data
+
+class TCPServer:
+    __slots__ = ('addr', 'sock_family', 'listening')
+    def __init__(self, addr: Address) -> None:
+        if isinstance(addr, str):
+            if _name == 'nt':
+                raise ValueError('UNIX sockets are not available on Windows.')
+            self.sock_family = AF_UNIX
+        elif isinstance(addr, tuple) and len(addr) == 2 and all(
+        isinstance(i, t) for i, t in zip(addr, (str, int))):
+            self.sock_family = AF_INET
+        else:
+            raise Exception('Invalid address.')
+
+        self.addr = addr
+        self.listening = False
+
+    def __enter__(self) -> None:
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def listen(self, max_conns: int = 5
+              ) -> Generator[Connection, None, None]:
+        if using_unix := self.sock_family == AF_UNIX:
+            # Remove unix socket if it already exists.
+            if path.exists(self.addr):
+                remove(self.addr)
+
+        with socket(self.sock_family, SOCK_STREAM) as s:
+            s.bind(self.addr)
+
+            if using_unix:
+                chmod(self.addr, 0o777)
+
+            self.listening = True
+            s.listen(max_conns)
+
+            while self.listening:
+                yield Connection(*s.accept())
