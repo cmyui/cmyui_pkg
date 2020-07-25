@@ -41,8 +41,7 @@ class DataType(IntEnum):
 
     def __str__(self) -> str:
         if self.value > self.f64:
-            raise Exception(
-                'Tried to use an advanced type with __str__.')
+            raise Exception('Tried to use an advanced type with __str__.')
 
         return 'xbBhHiIqQfd'[self.value]
 
