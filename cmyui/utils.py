@@ -12,9 +12,9 @@ def isnumeric_weak(s: str) -> bool:
     # negative numbers and floats.
     return s.replace('-', '', 1).replace('.', '', 1).isnumeric()
 
-characters = ascii_letters + digits
-def rstring(l: int) -> str:
-    return ''.join((choice(characters) for _ in range(l)))
+__chars = ascii_letters + digits
+def rstring(l: int, seq: str = __chars) -> str:
+    return ''.join((choice(seq) for _ in range(l)))
 
 class Ansi(IntEnum):
     # Default colours

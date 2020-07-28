@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import asyncio
+#import asyncio
 #import aiomysql
 from mysql.connector.pooling import MySQLConnectionPool
 from typing import Dict, Tuple, Optional, Union
