@@ -111,7 +111,7 @@ class Request:
         s = after_req_line.split(b'\r\n\r\n', 1)
         self.headers = defaultdict(lambda: None, {
             k: v.lstrip() for k, v in (
-                h.split(':') for h in s[0].decode().split('\r\n')
+                h.split(':', 1) for h in s[0].decode().split('\r\n')
             )
         })
         self.body = s[1]
@@ -123,7 +123,7 @@ class Request:
             # If our request has arguments, parse them.
             if (p_start := full_uri.find('?')) != -1:
                 self.uri = full_uri[:p_start]
-                for k, v in (i.split('=') for i in full_uri[p_start + 1:].split('&')):
+                for k, v in (i.split('=', 1) for i in full_uri[p_start + 1:].split('&')):
                     self.args.update({k: v})
             else:
                 self.uri = full_uri
@@ -211,11 +211,11 @@ class Response:
             print('\x1b[1;91mWARN: Connection pipe broken.\x1b[0m')
 
 class Connection: # will probably end up removing addr?
-    __slots__ = ('request', 'response', 'addr')
+    __slots__ = ('req', 'resp', 'addr')
 
     def __init__(self, sock: socket, addr: Address) -> None:
-        self.request = Request(self.read_data(sock))
-        self.response = Response(sock)
+        self.req = Request(self.read_data(sock))
+        self.resp = Response(sock)
         self.addr = addr
 
     @staticmethod
