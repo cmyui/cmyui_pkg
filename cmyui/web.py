@@ -96,6 +96,9 @@ class Request:
 
         self.parse_http_request()
 
+    def startswith(self, s: str) -> bool:
+        return self.uri.startswith(s)
+
     def parse_http_request(self) -> None:
         # Retrieve http request line from content.
         req_line, after_req_line = self.data.split(b'\r\n', 1)
@@ -214,12 +217,12 @@ class Connection: # will probably end up removing addr?
     __slots__ = ('req', 'resp', 'addr')
 
     def __init__(self, sock: socket, addr: Address) -> None:
-        self.req = Request(self.read_data(sock))
+        self.req = Request(self.read(sock))
         self.resp = Response(sock)
         self.addr = addr
 
     @staticmethod
-    def read_data(sock: socket, ch_size: int = 1024) -> bytes:
+    def read(sock: socket, ch_size: int = 1024) -> bytes:
         data = sock.recv(ch_size)
 
         # Read in `ch_size` byte chunks until there
