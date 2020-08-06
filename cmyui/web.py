@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from os import path, remove, chmod, name as _name
-from socket import socket, AF_INET, AF_UNIX, SOCK_STREAM
 from collections import defaultdict
 from enum import IntEnum, unique, auto
+from socket import (AF_INET, AF_UNIX, SOCK_STREAM,
+                    socket, SOL_SOCKET, SO_REUSEADDR)
 from typing import Final, Dict, Generator, Tuple, Union
+from os import path, remove, chmod, name as _name
 
 __all__ = (
     'HTTPStatus',
@@ -264,14 +265,15 @@ class TCPServer:
             if path.exists(self.addr):
                 remove(self.addr)
 
-        with socket(self.sock_family, SOCK_STREAM) as s:
-            s.bind(self.addr)
+        sock: socket
+        with socket(self.sock_family, SOCK_STREAM) as sock:
+            sock.bind(self.addr)
 
             if using_unix:
                 chmod(self.addr, 0o777)
 
             self.listening = True
-            s.listen(max_conns)
+            sock.listen(max_conns)
 
             while self.listening:
-                yield Connection(*s.accept())
+                yield Connection(*sock.accept())
