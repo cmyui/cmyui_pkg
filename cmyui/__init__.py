@@ -19,7 +19,7 @@ __title__ = 'cmyui'
 __author__ = 'cmyui'
 __license__ = 'MIT'
 __copyright__ = 'Copyright 2020 cmyui'
-__version__ = '1.1.5'
+__version__ = '1.1.7'
 
 from .binary import *
 from .mysql import *

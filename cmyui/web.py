@@ -182,7 +182,7 @@ class Request:
                 if 'filename' in attrs:
                     self.files.update({attrs['filename']: param_lines[data_line_idx]})
                 elif 'name' in attrs:
-                    self.args.update({attrs['name']: param_lines[data_line_idx]})
+                    self.args.update({attrs['name']: param_lines[data_line_idx].decode()})
                 else:
                     continue
 
