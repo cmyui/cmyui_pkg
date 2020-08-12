@@ -36,12 +36,13 @@ class SQLPool:
         [x.close() for x in (cursor, cnx)]
         return res
 
-    def fetch(self, query: str, params: SQLParams = (), _all: bool = False
+    def fetch(self, query: str, params: SQLParams = (),
+              _all: bool = False, _dict: bool = True
              ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
         if not (cnx := self.conn.get_connection()):
             raise Exception('MySQL: Failed to retrieve a worker.')
 
-        cursor = cnx.cursor(dictionary = True)
+        cursor = cnx.cursor(dictionary = _dict)
         cursor.execute(query, params)
 
         # We are fetching data.
