@@ -4,8 +4,18 @@ from typing import Union, Final
 from enum import IntEnum
 from string import ascii_letters, digits
 from random import choice
+from datetime import (
+    datetime as dt,
+    timezone as tz,
+    timedelta as td
+)
 
 __all__ = ('isnumeric_weak', 'rstring', 'Ansi', 'printc')
+
+ts_fmt = ('%I:%M:%S%p', '%d/%m/%Y %I:%M:%S%p')
+tz_est = tz(td(hours = -4), 'EDT')
+def get_timestamp(full: bool = False) -> str:
+    return f'{dt.now(tz = tz_est):{ts_fmt[full]}}'
 
 def isnumeric_weak(s: str) -> bool:
     # isnumeric() which works with
