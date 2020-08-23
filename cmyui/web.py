@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 
+import uvloop
 from collections import defaultdict
 from enum import IntEnum, unique, auto
 from socket import (AF_INET, AF_UNIX, SOCK_STREAM,
                     socket, SOL_SOCKET, SO_REUSEADDR)
-from typing import Final, Dict, Generator, Tuple, Union
+from typing import AsyncGenerator, Final, Dict, Generator, Optional, Tuple, Union
 from os import path, remove, chmod, name as _name
 
 __all__ = (
@@ -78,6 +79,8 @@ class HTTPStatus(IntEnum):
 # Will be (host: str, port: int) if INET,
 # or (sock_dir: str) if UNIX.
 Address = Union[Tuple[str, int], str]
+
+""" Synchronous stuff """
 
 class Request:
     __slots__ = ('headers', 'body', 'data', 'cmd',
@@ -277,3 +280,216 @@ class TCPServer:
 
             while self.listening:
                 yield Connection(*sock.accept())
+
+""" Asynchronous stuff """
+
+class AsyncRequest:
+    __slots__ = ('headers', 'body', 'cmd', 'uri',
+                 'httpver', 'args', 'files')
+
+    def __init__(self) -> None:
+        self.headers = []
+        self.body = b''
+        self.cmd = ''
+        self.uri = ''
+        self.httpver = 0.0
+
+        self.args = defaultdict(lambda: None)
+        self.files = defaultdict(lambda: None)
+
+    def startswith(self, s: str) -> bool:
+        return self.uri.startswith(s)
+
+    async def parse(self, data: bytes) -> None:
+        # Retrieve http request line from content.
+        req_line, after_req_line = data.split(b'\r\n', 1)
+        self.cmd, full_uri, _httpver = req_line.decode().split(' ')
+
+        if len(_httpver) != 8 \
+        or not _httpver[5:].replace('.', '', 1).isnumeric():
+            raise Exception('Invalid HTTP version.')
+
+        self.httpver = float(_httpver[5:])
+
+        # Split into headers & body
+        s = after_req_line.split(b'\r\n\r\n', 1)
+        self.headers = defaultdict(lambda: None, {
+            k: v.lstrip() for k, v in (
+                h.split(':', 1) for h in s[0].decode().split('\r\n')
+            )
+        })
+        self.body = s[1]
+        del s
+
+        # Parse our request for arguments.
+        # Method varies on the http command.
+        if self.cmd == 'GET':
+            # If our request has arguments, parse them.
+            if (p_start := full_uri.find('?')) != -1:
+                self.uri = full_uri[:p_start]
+                for k, v in (i.split('=', 1) for i in full_uri[p_start + 1:].split('&')):
+                    self.args.update({k: v})
+            else:
+                self.uri = full_uri
+        elif self.cmd == 'POST':
+            self.uri = full_uri
+
+            if not (ct := self.headers['Content-Type']) \
+            or not ct.startswith('multipart/form-data'):
+                return # Non-multipart POST
+
+            # Parse multipartform data into args.
+            # Very sketch method, i'm not a fan of multipart forms..
+            boundary = ct.split('=')[1].encode()
+
+            for form_part in self.body.split(b'--' + boundary)[1:]:
+                # TODO len checks? will think abt it
+                if form_part[:2] != b'\r\n':
+                    continue
+
+                param_lines = form_part[2:].split(b'\r\n', 3)
+                if len(param_lines) < 1:
+                    raise Exception('Malformed line in multipart form-data.')
+                    #continue
+
+                # Find idx manually
+                data_line_idx = 0
+                for idx, l in enumerate(param_lines):
+                    if not l:
+                        data_line_idx = idx + 1
+                        break
+
+                if data_line_idx == 0:
+                    continue
+
+                # XXX: type_line is currently unused, but it
+                # can contain the content-type of the param,
+                # such as `Content-Type: image/png`.
+                attrs_line, type_line = (s.decode() for s in param_lines[:2])
+
+                if not attrs_line.startswith('Content-Disposition: form-data'):
+                    continue
+
+                if ';' not in attrs_line:
+                    continue
+
+                # Line has attributes in `k="v"` fmt, each
+                # delimited by ` ;`. We split by `;` and
+                # lstrip the key to allow for a `;` delimiter.
+                attrs = {k.lstrip(): v[1:-1] for k, v in (
+                         a.split('=', 1) for a in attrs_line.split(';')[1:])}
+
+                if 'filename' in attrs:
+                    self.files.update({attrs['filename']: param_lines[data_line_idx]})
+                elif 'name' in attrs:
+                    self.args.update({attrs['name']: param_lines[data_line_idx].decode()})
+                else:
+                    continue
+
+                # Link all other attrs to their respective values.
+                for k, v in attrs.items():
+                    if k != 'name':
+                        self.args.update({k: v})
+        else:
+            raise Exception(f'Unsupported HTTP command: {self.cmd}')
+
+class AsyncResponse:
+    __slots__ = ('loop', 'client', 'headers')
+
+    def __init__(self, loop: uvloop.Loop, client: socket) -> None:
+        self.loop = loop
+        self.client = client
+        self.headers = []
+
+    async def add_header(self, header: str, index: int = -1) -> None:
+        if index > -1: # Insert
+            self.headers.insert(index, header)
+        else: # Append
+            self.headers.append(header)
+
+    async def send(self, data: bytes, status: HTTPStatus = HTTPStatus.Ok) -> None:
+        # Insert HTTP response line & content at the beginning of headers.
+        await self.add_header(f'HTTP/1.1 {repr(HTTPStatus(status)).upper()}', 0)
+        await self.add_header(f'Content-Length: {len(data)}', 1)
+
+        # Concat all data together for sending to the client.
+        ret = '\r\n'.join(self.headers).encode() + b'\r\n\r\n' + data
+
+        try: # Send all data to client.
+            await self.loop.sock_sendall(self.client, ret)
+        except BrokenPipeError:
+            print('\x1b[1;91mWARN: Connection pipe broken.\x1b[0m')
+
+class AsyncConnection:
+    __slots__ = ('req', 'resp', 'addr')
+
+    def __init__(self, addr: Address) -> None:
+        # Request & Response setup in self.read()
+        self.req: Optional[AsyncRequest] = None
+        self.resp: Optional[AsyncResponse] = None
+        self.addr = addr
+
+    async def read(self, loop: uvloop.Loop, client: socket,
+                   ch_size: int = 1024) -> bytes:
+        data = await loop.sock_recv(client, ch_size)
+
+        # Read in `ch_size` byte chunks until there
+        # was no change in size between reads.
+        while (l := len(data)) % ch_size == 0:
+            data += await loop.sock_recv(client, ch_size)
+            if l == len(data):
+                break
+
+        # Parse our data into an HTTP request.
+        self.req = AsyncRequest()
+        await self.req.parse(data)
+
+        # Prepare response obj aswell.
+        self.resp = AsyncResponse(loop, client)
+
+class AsyncTCPServer:
+    __slots__ = ('addr', 'sock_family', 'listening')
+    def __init__(self, addr: Address) -> None:
+        is_inet = isinstance(addr, tuple) \
+              and len(addr) == 2 \
+              and all(isinstance(i, t) for i, t in zip(addr, (str, int)))
+
+        if is_inet:
+            self.sock_family = AF_INET
+        elif isinstance(addr, str):
+            self.sock_family = AF_UNIX
+        else:
+            raise Exception('Invalid address.')
+
+        self.addr = addr
+        self.listening = False
+
+    async def __aenter__(self) -> None:
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    async def listen(self, loop: uvloop.Loop, max_conns: int = 5
+                    ) -> AsyncGenerator[AsyncConnection, None]:
+        if using_unix := self.sock_family == AF_UNIX:
+            # Remove unix socket if it already exists.
+            if path.exists(self.addr):
+                remove(self.addr)
+
+        sock: socket
+        with socket(self.sock_family, SOCK_STREAM) as sock:
+            sock.bind(self.addr)
+
+            if using_unix:
+                chmod(self.addr, 0o777)
+
+            self.listening = True
+            sock.listen(max_conns)
+            sock.setblocking(False)
+
+            while self.listening:
+                client, addr = await loop.sock_accept(sock)
+                conn = AsyncConnection(addr)
+                await conn.read(loop, client, 1024)
+                yield conn

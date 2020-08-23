@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 
-#import asyncio
-#import aiomysql
+import aiomysql
 from mysql.connector.pooling import MySQLConnectionPool
 from typing import Dict, Tuple, Optional, Union
 
@@ -9,7 +8,7 @@ __all__ = (
     'SQLParams',
     'SQLResult',
     'SQLPool',
-    #'AsyncMySQLPool'
+    'AsyncSQLPool'
 )
 
 SQLParams = Tuple[Union[int, float, str]]
@@ -42,7 +41,7 @@ class SQLPool:
         if not (cnx := self.conn.get_connection()):
             raise Exception('MySQL: Failed to retrieve a worker.')
 
-        cursor = cnx.cursor(dictionary = _dict)
+        cursor = cnx.cursor(dictionary = _dict, buffered = True)
         cursor.execute(query, params)
 
         # We are fetching data.
@@ -55,37 +54,41 @@ class SQLPool:
                 ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
         return self.fetch(query, params, _all = True)
 
-
 # Should work, just disabled since
 # there's no async server yet xd.
-'''
-class AsyncMySQLPool:
-    __slots__ = ('conn',)
+class AsyncSQLPool:
+    __slots__ = ('pool',)
 
-    async def __init__(self, **kwargs):
-        self.conn = await aiomysql.connect(**kwargs)
+    def __init__(self):
+        self.pool: Optional[aiomysql.Pool] = None
+
+    async def connect(self, loop, **kwargs):
+        self.pool = await aiomysql.create_pool(loop=loop, **kwargs)
 
     async def execute(self, query: str, params: SQLParams
                      ) -> int:
-        cur: aiomysql.Cursor = await self.conn.cursor()
-        await cur.execute(query)
-        #cur._clear_result()? cur.fetchmany()?
-        ret = cur.lastrowid
+        conn: aiomysql.Connection
+        cur: aiomysql.Cursor
+        async with self.pool.acquire() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(query, params)
+                await conn.commit()
 
-        await cur.close()
-        return ret
+                lastrowid = cur.lastrowid
 
-    async def fetch(self, query: str, params: SQLParams, _all: bool = False
+        return lastrowid
+
+    async def fetch(self, query: str, params: Optional[SQLParams] = None, _all: bool = False
                    ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
-        cur: aiomysql.Cursor = await self.conn.cursor()
-        await cur.execute(query)
-        if not (res := (cur.fetchall if _all else cur.fetchone)()):
-            print('SQLError: No rows in result set.')
-            return None
+        conn: aiomysql.Connection
+        cur: aiomysql.Cursor
+        async with self.pool.acquire() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(query, params)
+                res = await (cur.fetchall if _all else cur.fetchone)()
 
-        await cur.close()
+        return res
 
-    async def fetchall(self, query: str, params: SQLParams
+    async def fetchall(self, query: str, params: Optional[SQLParams] = None
                       ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
         return await self.fetch(query, params, _all = True)
-'''
