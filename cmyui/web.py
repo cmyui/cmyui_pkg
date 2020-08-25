@@ -2,19 +2,27 @@
 
 import uvloop
 from collections import defaultdict
-from enum import IntEnum, unique, auto
-from socket import (AF_INET, AF_UNIX, SOCK_STREAM,
-                    socket, SOL_SOCKET, SO_REUSEADDR)
-from typing import AsyncGenerator, Final, Dict, Generator, Optional, Tuple, Union
-from os import path, remove, chmod, name as _name
+from enum import IntEnum, unique
+from socket import socket, AF_INET, AF_UNIX, SOCK_STREAM, socket
+from typing import AsyncGenerator, Final, Dict, Generator, Optional, Tuple, Union, DefaultDict
+from os import path, remove, chmod
 
 __all__ = (
+    # Information
     'HTTPStatus',
     'Address',
+
+    # Synchronous
     'Connection',
     'Request',
     'Response',
-    'TCPServer'
+    'TCPServer',
+
+    # Asynchronous
+    'AsyncConnection',
+    'AsyncRequest',
+    'AsyncResponse',
+    'AsyncTCPServer'
 )
 
 _httpstatus_str: Final[Dict[int, str]] = {
@@ -83,118 +91,189 @@ Address = Union[Tuple[str, int], str]
 """ Synchronous stuff """
 
 class Request:
-    __slots__ = ('headers', 'body', 'data', 'cmd',
-                 'uri', 'httpver', 'args', 'files')
+    __slots__ = ('headers', 'body', 'cmd', 'path',
+                 'httpver', 'args', 'files')
 
-    def __init__(self, data: bytes):
-        self.data = data
-
-        self.headers = []
+    def __init__(self):
+        self.headers: DefaultDict[str, str] = defaultdict(lambda: None)
         self.body = b''
         self.cmd = ''
-        self.uri = ''
+        self.path = ''
         self.httpver = 0.0
 
-        self.args = defaultdict(lambda: None)
-        self.files = defaultdict(lambda: None)
-
-        self.parse_http_request()
+        self.args: DefaultDict[str, str] = defaultdict(lambda: None)
+        self.files: DefaultDict[str, str] = defaultdict(lambda: None)
 
     def startswith(self, s: str) -> bool:
-        return self.uri.startswith(s)
+        return self.path.startswith(s)
 
-    def parse_http_request(self) -> None:
-        # Retrieve http request line from content.
-        req_line, after_req_line = self.data.split(b'\r\n', 1)
-        self.cmd, full_uri, _httpver = req_line.decode().split(' ')
+    def parse(self, req_content: bytes) -> None:
+        """ HTTP Request format:
+        # {cmd} /{path} HTTP/{httpver} ; HTTP Request Line
+        # {key}: {value}               ; Header (indefinite amount)
+        #                              ; Header/body separating line
+        # {body}                       ; Body (for the rest of the req)
+        """
 
-        if len(_httpver) != 8 \
-        or not _httpver[5:].replace('.', '', 1).isnumeric():
-            raise Exception('Invalid HTTP version.')
+        # TODO: move contants out of the function.
 
-        self.httpver = float(_httpver[5:])
+        # NOTE: the excessive logging on failure will be
+        # removed after more extensive testing is done :)
 
-        # Split into headers & body
-        s = after_req_line.split(b'\r\n\r\n', 1)
-        self.headers = defaultdict(lambda: None, {
-            k: v.lstrip() for k, v in (
-                h.split(':', 1) for h in s[0].decode().split('\r\n')
-            )
-        })
-        self.body = s[1]
-        del s
+        # Retrieve the http request line.
+        req_line, after_req_line = req_content.split(b'\r\n', 1)
 
-        # Parse our request for arguments.
-        # Method varies on the http command.
-        if self.cmd == 'GET':
-            # If our request has arguments, parse them.
-            if (p_start := full_uri.find('?')) != -1:
-                self.uri = full_uri[:p_start]
-                for k, v in (i.split('=', 1) for i in full_uri[p_start + 1:].split('&')):
-                    self.args.update({k: v})
-            else:
-                self.uri = full_uri
-        elif self.cmd == 'POST':
-            self.uri = full_uri
+        # Decode and split into (cmd, path, httpver).
+        req_line_split = req_line.decode().split(' ')
 
-            if not (ct := self.headers['Content-Type']) \
-            or not ct.startswith('multipart/form-data'):
-                return # Non-multipart POST
+        # TODO: cmyui.utils this
+        isfloat = lambda s: s.replace('.', '', 1).isnumeric()
 
-            # Parse multipartform data into args.
-            # Very sketch method, i'm not a fan of multipart forms..
-            boundary = ct.split('=')[1].encode()
+        valid_req_line = (
+            len(req_line_split) == 3 and # split must be (cmd, path, ver)
+            len(req_line_split[2]) == 8 and # ver string must be 8 chars
+            isfloat(req_line_split[2][5:]) # ver string must be float
+        )
 
-            for form_part in self.body.split(b'--' + boundary)[1:]:
-                # TODO len checks? will think abt it
-                if form_part[:2] != b'\r\n':
-                    continue
+        # Ensure the split format is valid.
+        if not valid_req_line:
+            raise Exception(f'Invalid http request line "{req_line}"')
 
-                param_lines = form_part[2:].split(b'\r\n', 3)
-                if len(param_lines) < 1:
-                    raise Exception('Malformed line in multipart form-data.')
-                    #continue
+        cmd, path, ver = req_line_split
 
-                # Find idx manually
-                data_line_idx = 0
-                for idx, l in enumerate(param_lines):
-                    if not l:
-                        data_line_idx = idx + 1
-                        break
+        # Ensure all pieces of the split are valid.
+        if cmd not in ('GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'):
+            raise Exception(f'Invalid http command "{cmd}"')
+        # TODO: path regex match?
+        if ver[5:] not in ('1.0', '1.1', '2.0', '3.0'):
+            raise Exception(f'Invalid http version "{ver[5:]}"')
 
-                if data_line_idx == 0:
-                    continue
+        # Store our cmd & http ver. The path may still
+        # contain arguments if it is a get request.
+        self.cmd = cmd
+        self.httpver = float(ver[5:])
 
-                # XXX: type_line is currently unused, but it
-                # can contain the content-type of the param,
-                # such as `Content-Type: image/png`.
-                attrs_line, type_line = (s.decode() for s in param_lines[:2])
+        # Split the rest of the request into headers & body.
+        header_lines, self.body = after_req_line.split(b'\r\n\r\n', 1)
 
-                if not attrs_line.startswith('Content-Disposition: form-data'):
-                    continue
+        # Parse the headers into our class.
+        for header_line in header_lines.decode().split('\r\n'):
+            # Split header into k: v pair.
+            header = header_line.split(':', 1)
 
-                if ';' not in attrs_line:
-                    continue
+            if len(header) != 2: # Only key received.
+                raise Exception(f'Invalid header "{header}"')
 
-                # Line has attributes in `k="v"` fmt, each
-                # delimited by ` ;`. We split by `;` and
-                # lstrip the key to allow for a `;` delimiter.
-                attrs = {k.lstrip(): v[1:-1] for k, v in (
-                         a.split('=', 1) for a in attrs_line.split(';')[1:])}
+            self.headers.update({header[0]: header[1].lstrip()})
+
+        if self.cmd in ('GET', 'HEAD'): # Args may be in the path
+            # Find the ? in the path.
+            p_start = path.find('?')
+            if p_start != -1: # Has params
+                # Path will simply be until the params.
+                self.path = path[:p_start]
+
+                # Parse params into our class arguments.
+                for param_line in path[p_start + 1:].split('&'):
+                    # Split param into k: v pair.
+                    param = param_line.split('=', 1)
+
+                    if len(param) != 2: # Only key received.
+                        raise Exception(f'Invalid GET parameter "{param}"')
+
+                    # If the param is an int or float, cast it.
+                    if param[1].isnumeric():
+                        param[1] = int(param[1])
+                    elif isfloat(param[1]):
+                        param[1] = float(param[1])
+
+                    self.args.update({param[0]: param[1]})
+
+            else: # No params
+                # Path will be our full path.
+                self.path = path
+
+        elif self.cmd == 'POST': # Args may be in the body (multipart)
+            self.path = path
+
+            # XXX: may redesign so we don't have to return
+            # here, that way timing will be easier..
+
+            if 'Content-Type' not in self.headers:
+                return
+
+            if not self.headers['Content-Type'].startswith('multipart/form-data'):
+                return
+
+            # Retrieve the multipart boundary from the headers.
+            # It will need to be encoded, since the body is as well.
+            boundary = self.headers['Content-Type'].split('=', 1)[1].encode()
+
+            # Ignore the first and last parts of the multipart,
+            # since the boundary is always sent at the start/end.
+            for part in self.body.split(b'--' + boundary)[1:-1]:
+                # Split each part by CRLF, this should give use the
+                # content-disposition on index 1, possibly the
+                # content-type on index 2, and the data 2 indices later.
+                s = part[2:].split(b'\r\n')
+
+                # Ensure content disposition is correct.
+                if not s[0].startswith(b'Content-Disposition: form-data;'):
+                    raise Exception(f'Invalid multipart param "{part}"')
+
+                # Used to store attributes passed
+                # in the content-disposition line.
+                attrs = {}
+
+                # Split attributes from the content-disposition line.
+                for attr_line in s[0].decode().split(';')[1:]:
+                    # Split attr into k: v pair.
+                    attr = attr_line.split('=', 1)
+
+                    if len(attr) != 2: # Only key received.
+                        raise Exception(f'Invalid multipart attribute "{attr}"')
+
+                    # Values are inside of quotation marks "",
+                    # so we simply use [1:-1] to remove them.
+                    attrs.update({attr[0].lstrip(): attr[1][1:-1]})
+
+                # Make sure either 'name' or 'filename' was in
+                # the attributes, so we know where to store it.
+                if not any(i in attrs for i in ('name', 'filename')):
+                    raise Exception('Neither name nor filename passed in multipart attributes')
+
+                # Check if content-type has been included.
+                if s[1].startswith(b'Content-Type'):
+                    # Since we have content-type, push
+                    # the data line idx back one more.
+                    data_line_idx = 3
+
+                    # TODO: perhaps use the content-type?
+                    # At the moment, it's not very useful to me.
+                else:
+                    # No content-type provided, index
+                    # will be two indices after disposition.
+                    data_line_idx = 2
+
+                data = s[data_line_idx]
 
                 if 'filename' in attrs:
-                    self.files.update({attrs['filename']: param_lines[data_line_idx]})
-                elif 'name' in attrs:
-                    self.args.update({attrs['name']: param_lines[data_line_idx].decode()})
+                    # Save to files as bytes
+                    self.files.update({attrs['filename']: data})
                 else:
-                    continue
+                    # Save to args as string
+                    self.args.update({attrs['name']: data.decode()})
 
-                # Link all other attrs to their respective values.
+                # Save any non-related attributes
+                # into our request's arguments.
                 for k, v in attrs.items():
-                    if k != 'name':
+                    if k not in ('name', 'filename'):
                         self.args.update({k: v})
+
         else:
-            raise Exception(f'Unsupported HTTP command: {self.cmd}')
+            # Currently unhandled method,
+            # no further parsing required.
+            pass
 
 class Response:
     __slots__ = ('sock', 'headers')
@@ -284,114 +363,189 @@ class TCPServer:
 """ Asynchronous stuff """
 
 class AsyncRequest:
-    __slots__ = ('headers', 'body', 'cmd', 'uri',
+    __slots__ = ('headers', 'body', 'cmd', 'path',
                  'httpver', 'args', 'files')
 
     def __init__(self) -> None:
-        self.headers = []
+        self.headers: DefaultDict[str, str] = defaultdict(lambda: None)
         self.body = b''
         self.cmd = ''
-        self.uri = ''
+        self.path = ''
         self.httpver = 0.0
 
-        self.args = defaultdict(lambda: None)
-        self.files = defaultdict(lambda: None)
+        self.args: DefaultDict[str, str] = defaultdict(lambda: None)
+        self.files: DefaultDict[str, str] = defaultdict(lambda: None)
 
     def startswith(self, s: str) -> bool:
-        return self.uri.startswith(s)
+        return self.path.startswith(s)
 
-    async def parse(self, data: bytes) -> None:
-        # Retrieve http request line from content.
-        req_line, after_req_line = data.split(b'\r\n', 1)
-        self.cmd, full_uri, _httpver = req_line.decode().split(' ')
+    async def parse(self, req_content: bytes) -> None:
+        """ HTTP Request format:
+        # {cmd} /{path} HTTP/{httpver} ; HTTP Request Line
+        # {key}: {value}               ; Header (indefinite amount)
+        #                              ; Header/body separating line
+        # {body}                       ; Body (for the rest of the req)
+        """
 
-        if len(_httpver) != 8 \
-        or not _httpver[5:].replace('.', '', 1).isnumeric():
-            raise Exception('Invalid HTTP version.')
+        # TODO: move contants out of the function.
 
-        self.httpver = float(_httpver[5:])
+        # NOTE: the excessive logging on failure will be
+        # removed after more extensive testing is done :)
 
-        # Split into headers & body
-        s = after_req_line.split(b'\r\n\r\n', 1)
-        self.headers = defaultdict(lambda: None, {
-            k: v.lstrip() for k, v in (
-                h.split(':', 1) for h in s[0].decode().split('\r\n')
-            )
-        })
-        self.body = s[1]
-        del s
+        # Retrieve the http request line.
+        req_line, after_req_line = req_content.split(b'\r\n', 1)
 
-        # Parse our request for arguments.
-        # Method varies on the http command.
-        if self.cmd == 'GET':
-            # If our request has arguments, parse them.
-            if (p_start := full_uri.find('?')) != -1:
-                self.uri = full_uri[:p_start]
-                for k, v in (i.split('=', 1) for i in full_uri[p_start + 1:].split('&')):
-                    self.args.update({k: v})
-            else:
-                self.uri = full_uri
-        elif self.cmd == 'POST':
-            self.uri = full_uri
+        # Decode and split into (cmd, path, httpver).
+        req_line_split = req_line.decode().split(' ')
 
-            if not (ct := self.headers['Content-Type']) \
-            or not ct.startswith('multipart/form-data'):
-                return # Non-multipart POST
+        # TODO: cmyui.utils this
+        isfloat = lambda s: s.replace('.', '', 1).isnumeric()
 
-            # Parse multipartform data into args.
-            # Very sketch method, i'm not a fan of multipart forms..
-            boundary = ct.split('=')[1].encode()
+        valid_req_line = (
+            len(req_line_split) == 3 and # split must be (cmd, path, ver)
+            len(req_line_split[2]) == 8 and # ver string must be 8 chars
+            isfloat(req_line_split[2][5:]) # ver string must be float
+        )
 
-            for form_part in self.body.split(b'--' + boundary)[1:]:
-                # TODO len checks? will think abt it
-                if form_part[:2] != b'\r\n':
-                    continue
+        # Ensure the split format is valid.
+        if not valid_req_line:
+            raise Exception(f'Invalid http request line "{req_line}"')
 
-                param_lines = form_part[2:].split(b'\r\n', 3)
-                if len(param_lines) < 1:
-                    raise Exception('Malformed line in multipart form-data.')
-                    #continue
+        cmd, path, ver = req_line_split
 
-                # Find idx manually
-                data_line_idx = 0
-                for idx, l in enumerate(param_lines):
-                    if not l:
-                        data_line_idx = idx + 1
-                        break
+        # Ensure all pieces of the split are valid.
+        if cmd not in ('GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'):
+            raise Exception(f'Invalid http command "{cmd}"')
+        # TODO: path regex match?
+        if ver[5:] not in ('1.0', '1.1', '2.0', '3.0'):
+            raise Exception(f'Invalid http version "{ver[5:]}"')
 
-                if data_line_idx == 0:
-                    continue
+        # Store our cmd & http ver. The path may still
+        # contain arguments if it is a get request.
+        self.cmd = cmd
+        self.httpver = float(ver[5:])
 
-                # XXX: type_line is currently unused, but it
-                # can contain the content-type of the param,
-                # such as `Content-Type: image/png`.
-                attrs_line, type_line = (s.decode() for s in param_lines[:2])
+        # Split the rest of the request into headers & body.
+        header_lines, self.body = after_req_line.split(b'\r\n\r\n', 1)
 
-                if not attrs_line.startswith('Content-Disposition: form-data'):
-                    continue
+        # Parse the headers into our class.
+        for header_line in header_lines.decode().split('\r\n'):
+            # Split header into k: v pair.
+            header = header_line.split(':', 1)
 
-                if ';' not in attrs_line:
-                    continue
+            if len(header) != 2: # Only key received.
+                raise Exception(f'Invalid header "{header}"')
 
-                # Line has attributes in `k="v"` fmt, each
-                # delimited by ` ;`. We split by `;` and
-                # lstrip the key to allow for a `;` delimiter.
-                attrs = {k.lstrip(): v[1:-1] for k, v in (
-                         a.split('=', 1) for a in attrs_line.split(';')[1:])}
+            self.headers.update({header[0]: header[1].lstrip()})
+
+        if self.cmd in ('GET', 'HEAD'): # Args may be in the path
+            # Find the ? in the path.
+            p_start = path.find('?')
+            if p_start != -1: # Has params
+                # Path will simply be until the params.
+                self.path = path[:p_start]
+
+                # Parse params into our class arguments.
+                for param_line in path[p_start + 1:].split('&'):
+                    # Split param into k: v pair.
+                    param = param_line.split('=', 1)
+
+                    if len(param) != 2: # Only key received.
+                        raise Exception(f'Invalid GET parameter "{param}"')
+
+                    # If the param is an int or float, cast it.
+                    if param[1].isnumeric():
+                        param[1] = int(param[1])
+                    elif isfloat(param[1]):
+                        param[1] = float(param[1])
+
+                    self.args.update({param[0]: param[1]})
+
+            else: # No params
+                # Path will be our full path.
+                self.path = path
+
+        elif self.cmd == 'POST': # Args may be in the body (multipart)
+            self.path = path
+
+            # XXX: may redesign so we don't have to return
+            # here, that way timing will be easier..
+
+            if 'Content-Type' not in self.headers:
+                return
+
+            if not self.headers['Content-Type'].startswith('multipart/form-data'):
+                return
+
+            # Retrieve the multipart boundary from the headers.
+            # It will need to be encoded, since the body is as well.
+            boundary = self.headers['Content-Type'].split('=', 1)[1].encode()
+
+            # Ignore the first and last parts of the multipart,
+            # since the boundary is always sent at the start/end.
+            for part in self.body.split(b'--' + boundary)[1:-1]:
+                # Split each part by CRLF, this should give use the
+                # content-disposition on index 1, possibly the
+                # content-type on index 2, and the data 2 indices later.
+                s = part[2:].split(b'\r\n')
+
+                # Ensure content disposition is correct.
+                if not s[0].startswith(b'Content-Disposition: form-data;'):
+                    raise Exception(f'Invalid multipart param "{part}"')
+
+                # Used to store attributes passed
+                # in the content-disposition line.
+                attrs = {}
+
+                # Split attributes from the content-disposition line.
+                for attr_line in s[0].decode().split(';')[1:]:
+                    # Split attr into k: v pair.
+                    attr = attr_line.split('=', 1)
+
+                    if len(attr) != 2: # Only key received.
+                        raise Exception(f'Invalid multipart attribute "{attr}"')
+
+                    # Values are inside of quotation marks "",
+                    # so we simply use [1:-1] to remove them.
+                    attrs.update({attr[0].lstrip(): attr[1][1:-1]})
+
+                # Make sure either 'name' or 'filename' was in
+                # the attributes, so we know where to store it.
+                if not any(i in attrs for i in ('name', 'filename')):
+                    raise Exception('Neither name nor filename passed in multipart attributes')
+
+                # Check if content-type has been included.
+                if s[1].startswith(b'Content-Type'):
+                    # Since we have content-type, push
+                    # the data line idx back one more.
+                    data_line_idx = 3
+
+                    # TODO: perhaps use the content-type?
+                    # At the moment, it's not very useful to me.
+                else:
+                    # No content-type provided, index
+                    # will be two indices after disposition.
+                    data_line_idx = 2
+
+                data = s[data_line_idx]
 
                 if 'filename' in attrs:
-                    self.files.update({attrs['filename']: param_lines[data_line_idx]})
-                elif 'name' in attrs:
-                    self.args.update({attrs['name']: param_lines[data_line_idx].decode()})
+                    # Save to files as bytes
+                    self.files.update({attrs['filename']: data})
                 else:
-                    continue
+                    # Save to args as string
+                    self.args.update({attrs['name']: data.decode()})
 
-                # Link all other attrs to their respective values.
+                # Save any non-related attributes
+                # into our request's arguments.
                 for k, v in attrs.items():
-                    if k != 'name':
+                    if k not in ('name', 'filename'):
                         self.args.update({k: v})
+
         else:
-            raise Exception(f'Unsupported HTTP command: {self.cmd}')
+            # Currently unhandled method,
+            # no further parsing required.
+            pass
 
 class AsyncResponse:
     __slots__ = ('loop', 'client', 'headers')
