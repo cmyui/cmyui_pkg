@@ -2,7 +2,7 @@
 
 import aiomysql
 from mysql.connector.pooling import MySQLConnectionPool
-from typing import Dict, Tuple, Optional, Union
+from typing import Dict, Tuple, Optional, Union, AsyncGenerator
 
 __all__ = (
     'SQLParams',
@@ -68,7 +68,7 @@ class AsyncSQLPool:
     async def execute(self, query: str, params: SQLParams
                      ) -> int:
         conn: aiomysql.Connection
-        cur: aiomysql.Cursor
+        cur: aiomysql.DictCursor
         async with self.pool.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(query, params)
@@ -81,7 +81,7 @@ class AsyncSQLPool:
     async def fetch(self, query: str, params: Optional[SQLParams] = None, _all: bool = False
                    ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
         conn: aiomysql.Connection
-        cur: aiomysql.Cursor
+        cur: aiomysql.DictCursor
         async with self.pool.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(query, params)
@@ -92,3 +92,14 @@ class AsyncSQLPool:
     async def fetchall(self, query: str, params: Optional[SQLParams] = None
                       ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
         return await self.fetch(query, params, _all = True)
+
+    async def iterall(self, query: str, params: Optional[SQLParams] = None
+                     ) -> AsyncGenerator[SQLResult, None]:
+        conn: aiomysql.Connection
+        cur: aiomysql.DictCursor
+        async with self.pool.acquire() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(query, params)
+
+                async for row in cur:
+                    yield row
