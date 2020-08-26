@@ -23,6 +23,7 @@ __version__ = '1.2.3'
 
 from .binary import *
 from .mysql import *
+from .postgres import *
 from .utils import *
 from .version import *
 from .web import *
