@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__all__ = ('Version',)
+__all__ = 'Version',
 
 class Version:
     def __init__(self, major: int, minor: int, micro: int) -> None:

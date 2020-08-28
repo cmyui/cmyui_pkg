@@ -27,30 +27,77 @@ __all__ = (
 
 _httpstatus_str: Final[Dict[int, str]] = {
     # Informational
-    100: 'Continue',
-    101: 'Switching Protocols',
-    102: 'Processing',
+    100: "Continue",
+    101: "Switching Protocols",
+    102: "Processing",
 
     # Success
-    200: 'Ok',
+    200: "Ok",
+    201: "Created",
+    202: "Accepted",
+    203: "Non-authoritative Information",
+    204: "No Content",
+    205: "Reset Content",
+    206: "Partial Content",
+    207: "Multi-Status",
+    208: "Already Reported",
+    226: "IM Used",
 
     # Redirection
-    307: 'Temporary Redirect',
-    308: 'Permanent Redirect',
+    300: "Multiple Choices",
+    301: "Moved Permanently",
+    302: "Found",
+    303: "See Other",
+    304: "Not Modified",
+    305: "Use Proxy",
+    307: "Temporary Redirect",
+    308: "Permanent Redirect",
 
     # Client Error
-    400: 'Bad Request',
-    401: 'Unauthorized',
-    402: 'Payment Required',
-    403: 'Forbidden',
-    404: 'Not Found',
+    400: "Bad Request",
+    401: "Unauthorized",
+    402: "Payment Required",
+    403: "Forbidden",
+    404: "Not Found",
+    405: "Method Not Allowed",
+    406: "Not Acceptable",
+    407: "Proxy Authentication Required",
+    408: "Request Timeout",
+    409: "Conflict",
+    410: "Gone",
+    411: "Length Required",
+    412: "Precondition Failed",
+    413: "Payload Too Large",
+    414: "Request-URI Too Long",
+    415: "Unsupported Media Type",
+    416: "Requested Range Not Satisfiable",
+    417: "Expectation Failed",
+    418: "I'm a teapot",
+    421: "Misdirected Request",
+    422: "Unprocessable Entity",
+    423: "Locked",
+    424: "Failed Dependency",
+    426: "Upgrade Required",
+    428: "Precondition Required",
+    429: "Too Many Requests",
+    431: "Request Header Fields Too Large",
+    444: "Connection Closed Without Response",
+    451: "Unavailable For Legal Reasons",
+    499: "Client Closed Request",
 
     # Server Error
-    500: 'Internal Server Error',
-    501: 'Not Implemented',
-    502: 'Bad Gateway',
-    503: 'Service Unavailable',
-    504: 'Gateway Timeout'
+    500: "Internal Server Error",
+    501: "Not Implemented",
+    502: "Bad Gateway",
+    503: "Service Unavailable",
+    504: "Gateway Timeout",
+    505: "HTTP Version Not Supported",
+    506: "Variant Also Negotiates",
+    507: "Insufficient Storage",
+    508: "Loop Detected",
+    510: "Not Extended",
+    511: "Network Authentication Required",
+    599: "Network Connect Timeout Error"
 }
 
 @unique
@@ -62,8 +109,23 @@ class HTTPStatus(IntEnum):
 
     # Success
     Ok = 200
+    Created = 201
+    Accepted = 202
+    NonAuthoritativeInformation = 203
+    NoContent = 204
+    ResetContent = 205
+    PartialContent = 206
+    MultiStatus = 207
+    AlreadyReported = 208
+    IMUsed = 226
 
     # Redirection
+    MultipleChoices = 300
+    MovedPermanently = 301
+    Found = 302
+    SeeOther = 303
+    NotModified = 304
+    UseProxy = 305
     TemporaryRedirect = 307
     PermanentRedirect = 308
 
@@ -73,6 +135,31 @@ class HTTPStatus(IntEnum):
     PaymentRequired = 402
     Forbidden = 403
     NotFound = 404
+    MethodNotAllowed = 405
+    NotAcceptable = 406
+    ProxyAuthenticationRequired = 407
+    RequestTimeout = 408
+    Conflict = 409
+    Gone = 410
+    LengthRequired = 411
+    PreconditionFailed = 412
+    PayloadTooLarge = 413
+    RequestURITooLong = 414
+    UnsupportedMediaType = 415
+    RequestedRangeNotSatisfiable = 416
+    ExpectationFailed = 417
+    ImATeapot = 418
+    MisdirectedRequest = 421
+    UnprocessableEntity = 422
+    Locked = 423
+    FailedDependency = 424
+    UpgradeRequired = 426
+    PreconditionRequired = 428
+    TooManyRequests = 429
+    RequestHeaderFieldsTooLarge = 431
+    ConnectionClosedWithoutResponse = 444
+    UnavailableForLegalReasons = 451
+    ClientClosedRequest = 499
 
     # Server Error
     InternalServerError = 500
@@ -80,6 +167,13 @@ class HTTPStatus(IntEnum):
     BadGateway = 502
     ServiceUnavailable = 503
     GatewayTimeout = 504
+    HTTPVersionNotSupported = 505
+    VariantAlsoNegotiates = 506
+    InsufficientStorage = 507
+    LoopDetected = 508
+    NotExtended = 510
+    NetworkAuthenticationRequired = 511
+    NetworkConnectTimeoutError = 599
 
     def __repr__(self) -> str:
         return f'{self.value} {_httpstatus_str[self.value]}'
@@ -533,13 +627,27 @@ class AsyncRequest:
                     # Save to files as bytes
                     self.files.update({attrs['filename']: data})
                 else:
+                    attr_val = data.decode()
+
                     # Save to args as string
-                    self.args.update({attrs['name']: data.decode()})
+                    # If the param is an int or float, cast it.
+                    if attr_val.isnumeric():
+                        attr_val = int(attr_val)
+                    elif isfloat(attr_val):
+                        attr_val = float(attr_val)
+
+                    self.args.update({attrs['name']: attr_val})
 
                 # Save any non-related attributes
                 # into our request's arguments.
                 for k, v in attrs.items():
                     if k not in ('name', 'filename'):
+                        # If the param is an int or float, cast it.
+                        if v.isnumeric():
+                            v = int(v)
+                        elif isfloat(v):
+                            v = float(v)
+
                         self.args.update({k: v})
 
         else:
@@ -561,18 +669,25 @@ class AsyncResponse:
         else: # Append
             self.headers.append(header)
 
-    async def send(self, data: bytes, status: HTTPStatus = HTTPStatus.Ok) -> None:
+    async def send(self, status: Union[HTTPStatus, int],
+                   data: Optional[bytes] = None) -> None:
         # Insert HTTP response line & content at the beginning of headers.
         await self.add_header(f'HTTP/1.1 {repr(HTTPStatus(status)).upper()}', 0)
-        await self.add_header(f'Content-Length: {len(data)}', 1)
 
-        # Concat all data together for sending to the client.
-        ret = '\r\n'.join(self.headers).encode() + b'\r\n\r\n' + data
+        if data: # Add content-length if we have any data.
+            await self.add_header(f'Content-Length: {len(data)}', 1)
+
+        # Encode the headers
+        ret = bytearray('\r\n'.join(self.headers).encode() + b'\r\n\r\n')
+
+        if data: # append body if there is one.
+            await self.add_header(f'Content-Length: {len(data)}', 1)
+            ret.extend(data)
 
         try: # Send all data to client.
-            await self.loop.sock_sendall(self.client, ret)
+            await self.loop.sock_sendall(self.client, bytes(ret))
         except BrokenPipeError:
-            print('\x1b[1;91mWARN: Connection pipe broken.\x1b[0m')
+            print('\x1b[1;91mServ: connection ended abruptly.\x1b[0m')
 
 class AsyncConnection:
     __slots__ = ('req', 'resp', 'addr')

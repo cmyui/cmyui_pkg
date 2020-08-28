@@ -26,7 +26,7 @@ class AsyncPGPool:
         async with self.pool.acquire() as con:
             async with con.transaction():
                 res = await con.cursor(query, *params)
-        
+
         return res
 
     async def fetch(self, query: str, *params: Tuple[SQLParams], _all: bool = False
