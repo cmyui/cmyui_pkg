@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-import uvloop
+import asyncio
 from collections import defaultdict
 from enum import IntEnum, unique
 from socket import socket, AF_INET, AF_UNIX, SOCK_STREAM, socket
@@ -656,10 +656,9 @@ class AsyncRequest:
             pass
 
 class AsyncResponse:
-    __slots__ = ('loop', 'client', 'headers')
+    __slots__ = ('client', 'headers')
 
-    def __init__(self, loop: uvloop.Loop, client: socket) -> None:
-        self.loop = loop
+    def __init__(self, client: socket) -> None:
         self.client = client
         self.headers = []
 
@@ -684,8 +683,10 @@ class AsyncResponse:
             await self.add_header(f'Content-Length: {len(data)}', 1)
             ret.extend(data)
 
+        loop = asyncio.get_event_loop()
+
         try: # Send all data to client.
-            await self.loop.sock_sendall(self.client, bytes(ret))
+            await loop.sock_sendall(self.client, bytes(ret))
         except BrokenPipeError:
             print('\x1b[1;91mServ: connection ended abruptly.\x1b[0m')
 
@@ -698,8 +699,9 @@ class AsyncConnection:
         self.resp: Optional[AsyncResponse] = None
         self.addr = addr
 
-    async def read(self, loop: uvloop.Loop, client: socket,
+    async def read(self, client: socket,
                    ch_size: int = 1024) -> bytes:
+        loop = asyncio.get_event_loop()
         data = await loop.sock_recv(client, ch_size)
 
         # Read in `ch_size` byte chunks until there
@@ -714,7 +716,7 @@ class AsyncConnection:
         await self.req.parse(data)
 
         # Prepare response obj aswell.
-        self.resp = AsyncResponse(loop, client)
+        self.resp = AsyncResponse(client)
 
 class AsyncTCPServer:
     __slots__ = ('addr', 'sock_family', 'listening')
@@ -739,12 +741,14 @@ class AsyncTCPServer:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         pass
 
-    async def listen(self, loop: uvloop.Loop, max_conns: int = 5
+    async def listen(self, max_conns: int = 5
                     ) -> AsyncGenerator[AsyncConnection, None]:
         if using_unix := self.sock_family == AF_UNIX:
             # Remove unix socket if it already exists.
             if path.exists(self.addr):
                 remove(self.addr)
+
+        loop = asyncio.get_event_loop()
 
         sock: socket
         with socket(self.sock_family, SOCK_STREAM) as sock:
@@ -760,5 +764,5 @@ class AsyncTCPServer:
             while self.listening:
                 client, addr = await loop.sock_accept(sock)
                 conn = AsyncConnection(addr)
-                await conn.read(loop, client, 1024)
+                await conn.read(client, 1024)
                 yield conn
