@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from typing import Union, Final
+from typing import Final
 from enum import IntEnum
 from string import ascii_letters, digits
 from random import choice
@@ -10,17 +10,15 @@ from datetime import (
     timedelta as td
 )
 
-__all__ = ('isnumeric_weak', 'rstring', 'Ansi', 'printc')
+__all__ = ('get_timestamp', 'isfloat', 'rstring', 'Ansi', 'printc')
 
 ts_fmt = ('%I:%M:%S%p', '%d/%m/%Y %I:%M:%S%p')
 tz_est = tz(td(hours = -4), 'EDT')
 def get_timestamp(full: bool = False) -> str:
     return f'{dt.now(tz = tz_est):{ts_fmt[full]}}'
 
-def isnumeric_weak(s: str) -> bool:
-    # isnumeric() which works with
-    # negative numbers and floats.
-    return s.replace('-', '', 1).replace('.', '', 1).isnumeric()
+def isfloat(s: str) -> bool:
+    return s.replace('.', '', 1).isdecimal()
 
 __chars = ascii_letters + digits
 def rstring(l: int, seq: str = __chars) -> str:
