@@ -541,70 +541,34 @@ class AsyncConnection:
         # It will need to be encoded, since the body is as well.
         boundary = self.headers['Content-Type'].split('=', 1)[1].encode()
 
-        # ignore the first and last parts of the multipart,
-        # since the boundary is always sent at the start/end.
-        for part in self.body.split(b'--' + boundary)[1:-1]:
-            # split each part by crlf, this should give use the
-            # content-disposition on index 1, possibly the
-            # content-type on index 2, and the data 2 indices later.
-            s = part[2:].split(b'\r\n')
+        for param in self.body.split(b'--' + boundary)[1:-1]:
+            _headers, _body = param.split(b'\r\n\r\n', 1)
 
-            # ensure content disposition is correct.
-            if not s[0].startswith(b'Content-Disposition: form-data;'):
-                utils.printc('Invalid multipart param', utils.Ansi.LIGHT_RED)
-                return
+            headers = {}
+            for header in _headers.decode().split('\r\n')[1:]:
+                if len(split := header.split(':', 1)) != 2:
+                    breakpoint()
 
-            # used to store attributes passed
-            # in the content-disposition line.
+                headers.update({split[0]: split[1].lstrip()})
+
+            if 'Content-Disposition' not in headers:
+                breakpoint()
+
             attrs = {}
+            for attr in headers['Content-Disposition'].split(';')[1:]:
+                if len(split := attr.split('=', 1)) != 2:
+                    breakpoint()
 
-            # split attributes from the content-disposition line.
-            for attr_line in s[0].decode().split(';')[1:]:
-                # split attr into k: v pair.
-                attr = attr_line.split('=', 1)
+                attrs.update({split[0].lstrip(): split[1][1:-1]})
 
-                if len(attr) != 2: # Only key received.
-                    utils.printc('Invalid multipart attribute', utils.Ansi.LIGHT_RED)
-                    return
+            body = _body[:-2]
 
-                # values are inside of quotation marks "",
-                # so we simply use [1:-1] to remove them.
-                attrs.update({attr[0].lstrip(): attr[1][1:-1]})
-
-            # make sure either 'name' or 'filename' was in
-            # the attributes, so we know where to store it.
-            if not any(i in attrs for i in ('name', 'filename')):
-                utils.printc('Neither name nor filename passed in multipart attributes', utils.Ansi.LIGHT_RED)
-                return
-
-            # check if content-type has been included.
-            if s[1].startswith(b'Content-Type'):
-                # since we have content-type, push
-                # the data line idx back one more.
-                data_line_idx = 3
-
-                # TODO: perhaps use the content-type?
-                # at the moment, it's not very useful to me.
-            else:
-                # no content-type provided, index
-                # will be two indices after disposition.
-                data_line_idx = 2
-
-            data = s[data_line_idx]
-
+            # multipart args should be decoded,
+            # but files should stay as bytes.
             if 'filename' in attrs:
-                # save to files as bytes
-                self.files.update({attrs['filename']: data})
+                self.files.update({attrs['filename']: body})
             else:
-                attr_val = data.decode()
-
-                self.multipart_args.update({attrs['name']: attr_val})
-
-            # save any non-related attributes
-            # into our request's arguments.
-            for k, v in attrs.items():
-                if k not in ('name', 'filename'):
-                    self.multipart_args.update({k: v})
+                self.multipart_args.update({attrs['name']: body.decode()})
 
     async def read(self) -> bytes:
         loop = asyncio.get_event_loop()
