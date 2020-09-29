@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from typing import Final
+import sys
 from enum import IntEnum
 from string import ascii_letters, digits
 from random import choice
@@ -26,30 +26,30 @@ def rstring(l: int, seq: str = __chars) -> str:
 
 class Ansi(IntEnum):
     # Default colours
-    BLACK: Final[int] = 30
-    RED: Final[int] = 31
-    GREEN: Final[int] = 32
-    YELLOW: Final[int] = 33
-    BLUE: Final[int] = 34
-    MAGENTA: Final[int] = 35
-    CYAN: Final[int] = 36
-    WHITE: Final[int] = 37
+    BLACK   = 30
+    RED     = 31
+    GREEN   = 32
+    YELLOW  = 33
+    BLUE    = 34
+    MAGENTA = 35
+    CYAN    = 36
+    WHITE   = 37
 
     # Light colours
-    GRAY: Final[int] = 90
-    LIGHT_RED: Final[int] = 91
-    LIGHT_GREEN: Final[int] = 92
-    LIGHT_YELLOW: Final[int] = 93
-    LIGHT_BLUE: Final[int] = 94
-    LIGHT_MAGENTA: Final[int] = 95
-    LIGHT_CYAN: Final[int] = 96
-    LIGHT_WHITE: Final[int] = 97
+    GRAY          = 90
+    LIGHT_RED     = 91
+    LIGHT_GREEN   = 92
+    LIGHT_YELLOW  = 93
+    LIGHT_BLUE    = 94
+    LIGHT_MAGENTA = 95
+    LIGHT_CYAN    = 96
+    LIGHT_WHITE   = 97
 
-    RESET: Final[int] = 0
+    RESET = 0
 
     def __repr__(self) -> str:
         return f'\x1b[{self.value}m'
 
-def printc(s: str, col: Ansi, *args, **kwargs) -> None:
+def printc(s: str, col: Ansi) -> None:
     # abstract the ugliness of colour codes away a bit.
-    print(f'{col!r}{s}{Ansi.RESET!r}', *args, **kwargs)
+    sys.stdout.write(f'{col!r}{s}{Ansi.RESET!r}\n')

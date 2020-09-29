@@ -7,14 +7,14 @@ from typing import Dict, Tuple, Optional, Union, AsyncGenerator
 __all__ = (
     'SQLParams',
     'SQLResult',
-    'SQLPool',
-    'AsyncSQLPool'
+    'SQLPoolWrapper',
+    'AsyncSQLPoolWrapper'
 )
 
 SQLParams = Tuple[Union[int, float, str]]
 SQLResult = Dict[str, Union[int, float, str]]
 
-class SQLPool:
+class SQLPoolWrapper:
     __slots__ = ('conn',)
 
     def __init__(self, **kwargs):
@@ -49,13 +49,13 @@ class SQLPool:
         [x.close() for x in (cursor, cnx)]
         return res
 
-    def fetchall(self, query: str, params: SQLParams = ()
+    def fetchall(self, query: str, params: SQLParams = (), _dict: bool = True
                 ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
-        return self.fetch(query, params, _all = True)
+        return self.fetch(query, params, _all = True, _dict = _dict)
 
 # Should work, just disabled since
 # there's no async server yet xd.
-class AsyncSQLPool:
+class AsyncSQLPoolWrapper:
     __slots__ = ('pool',)
 
     def __init__(self):
@@ -66,8 +66,6 @@ class AsyncSQLPool:
 
     async def execute(self, query: str,
                       params: SQLParams) -> int:
-        conn: aiomysql.Connection
-        cur: aiomysql.DictCursor
         async with self.pool.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cur:
                 await cur.execute(query, params)
@@ -81,13 +79,11 @@ class AsyncSQLPool:
                     params: Optional[SQLParams] = None,
                     _all: bool = False, _dict: bool = True
                    ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
-        cur_type = aiomysql.DictCursor if _dict else aiomysql.Cursor
-
-        conn: aiomysql.Connection
-        cur: cur_type
+        cursor_type = aiomysql.DictCursor if _dict \
+              else aiomysql.Cursor
 
         async with self.pool.acquire() as conn:
-            async with conn.cursor(cur_type) as cur:
+            async with conn.cursor(cursor_type) as cur:
                 await cur.execute(query, params)
                 res = await (cur.fetchall if _all else cur.fetchone)()
 
@@ -101,13 +97,11 @@ class AsyncSQLPool:
 
     async def iterall(self, query: str, params: Optional[SQLParams] = None,
                       _dict: bool = True) -> AsyncGenerator[SQLResult, None]:
-        cur_type = aiomysql.DictCursor if _dict else aiomysql.Cursor
-
-        conn: aiomysql.Connection
-        cur: cur_type
+        cursor_type = aiomysql.DictCursor if _dict \
+                 else aiomysql.Cursor
 
         async with self.pool.acquire() as conn:
-            async with conn.cursor(cur_type) as cur:
+            async with conn.cursor(cursor_type) as cur:
                 await cur.execute(query, params)
 
                 async for row in cur:
