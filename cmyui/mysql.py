@@ -2,7 +2,7 @@
 
 import aiomysql
 from mysql.connector.pooling import MySQLConnectionPool
-from typing import Dict, Tuple, Optional, Union, AsyncGenerator
+from typing import Optional, Union, AsyncGenerator
 
 __all__ = (
     'SQLParams',
@@ -11,8 +11,8 @@ __all__ = (
     'AsyncSQLPoolWrapper'
 )
 
-SQLParams = Tuple[Union[int, float, str]]
-SQLResult = Dict[str, Union[int, float, str]]
+SQLParams = tuple[Union[int, float, str]]
+SQLResult = dict[str, Union[int, float, str]]
 
 class SQLPoolWrapper:
     __slots__ = ('conn',)
@@ -36,7 +36,7 @@ class SQLPoolWrapper:
         return res
 
     def fetch(self, query: str, params: SQLParams = (), _all: bool = False,
-              _dict: bool = True) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
+              _dict: bool = True) -> Optional[Union[tuple[SQLResult], SQLResult]]:
         if not (cnx := self.conn.get_connection()):
             raise Exception('MySQL: Failed to retrieve a worker.')
 
@@ -50,7 +50,7 @@ class SQLPoolWrapper:
         return res
 
     def fetchall(self, query: str, params: SQLParams = (), _dict: bool = True
-                ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
+                ) -> Optional[Union[tuple[SQLResult], SQLResult]]:
         return self.fetch(query, params, _all = True, _dict = _dict)
 
 # Should work, just disabled since
@@ -78,7 +78,7 @@ class AsyncSQLPoolWrapper:
     async def fetch(self, query: str,
                     params: Optional[SQLParams] = None,
                     _all: bool = False, _dict: bool = True
-                   ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
+                   ) -> Optional[Union[tuple[SQLResult], SQLResult]]:
         cursor_type = aiomysql.DictCursor if _dict \
               else aiomysql.Cursor
 
@@ -92,7 +92,7 @@ class AsyncSQLPoolWrapper:
     async def fetchall(self, query: str,
                        params: Optional[SQLParams] = None,
                        _dict: bool = True
-                       ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
+                       ) -> Optional[Union[tuple[SQLResult], SQLResult]]:
         return await self.fetch(query, params, _all = True, _dict = _dict)
 
     async def iterall(self, query: str, params: Optional[SQLParams] = None,

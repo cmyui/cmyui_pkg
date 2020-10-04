@@ -6,9 +6,7 @@ import os
 import re
 from collections import defaultdict
 from enum import IntEnum, unique
-from typing import (AsyncGenerator, Final, Dict,
-                    List, Optional, Tuple,
-                    Union, DefaultDict)
+from typing import (AsyncGenerator, Optional, Union)
 
 from . import utils
 
@@ -28,7 +26,7 @@ __all__ = (
     'AsyncTCPServer'
 )
 
-_httpstatus_str: Final[Dict[int, str]] = {
+_httpstatus_str = {
     # Informational
     100: "Continue",
     101: "Switching Protocols",
@@ -183,7 +181,7 @@ class HTTPStatus(IntEnum):
 
 # Will be (host: str, port: int) if INET,
 # or (sock_dir: str) if UNIX.
-Address = Union[Tuple[str, int], str]
+Address = Union[tuple[str, int], str]
 
 """ Synchronous stuff """
 
@@ -483,18 +481,18 @@ class AsyncConnection:
         self.addr = addr
 
         # Request params
-        self.headers: DefaultDict[str, str] = defaultdict(lambda: None)
+        self.headers: defaultdict[str, str] = defaultdict(lambda: None)
         self.body: Optional[bytearray] = None
         self.cmd: Optional[str] = None
         self.path: Optional[str] = None
         self.httpver: Optional[float] = None
 
-        self.args: DefaultDict[str, str] = defaultdict(lambda: None)
-        self.files: DefaultDict[str, bytes] = defaultdict(lambda: None)
+        self.args: defaultdict[str, str] = defaultdict(lambda: None)
+        self.files: defaultdict[str, bytes] = defaultdict(lambda: None)
 
         # Response params
-        self.resp_headers: List[str] = []
-        self.multipart_args: DefaultDict[str, str] = defaultdict(lambda: None)
+        self.resp_headers: list[str] = []
+        self.multipart_args: defaultdict[str, str] = defaultdict(lambda: None)
 
     """ Request methods """
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-"""
+"""\
 A package of abstractions I find myself constantly rewriting in different apps..
 
 I enjoy writing things myself from a relatively low level, so while some of
@@ -19,7 +19,7 @@ __title__ = 'cmyui'
 __author__ = 'cmyui'
 __license__ = 'MIT'
 __copyright__ = 'Copyright 2020 cmyui'
-__version__ = '1.3.3'
+__version__ = '1.3.4'
 
 from .binary import *
 from .mysql import *
