@@ -539,7 +539,10 @@ class AsyncConnection:
         # It will need to be encoded, since the body is as well.
         boundary = self.headers['Content-Type'].split('=', 1)[1].encode()
 
-        for param in self.body.split(b'--' + boundary)[1:-1]:
+        params = self.body.split(b'--' + boundary)[1:]
+
+        # perhaps `if b'\r\n\r\n` in p` would be better?
+        for param in (p for p in params if p != b'--\r\n'):
             _headers, _body = param.split(b'\r\n\r\n', 1)
 
             headers = {}
