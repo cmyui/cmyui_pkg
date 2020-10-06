@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import asyncpg
-from typing import Dict, List, Tuple, Optional, Union, AsyncGenerator
+from typing import Optional, Union, AsyncGenerator
 
 __all__ = (
     'SQLParams',
@@ -9,9 +9,8 @@ __all__ = (
     'AsyncPGPool'
 )
 
-SQLParams = Tuple[Union[int, float, str]]
+SQLParams = tuple[Union[int, float, str]]
 SQLResult = asyncpg.Record
-
 
 class AsyncPGPool:
     __slots__ = ('pool',)
@@ -22,15 +21,15 @@ class AsyncPGPool:
     async def connect(self, loop, **kwargs):
         self.pool = await asyncpg.create_pool(loop=loop, **kwargs)
 
-    async def execute(self, query: str, *params: Tuple[SQLParams]) -> int:
+    async def execute(self, query: str, *params: tuple[SQLParams]) -> int:
         async with self.pool.acquire() as con:
             async with con.transaction():
                 res = await con.cursor(query, *params)
 
         return res
 
-    async def fetch(self, query: str, *params: Tuple[SQLParams], _all: bool = False
-                   ) -> Optional[Union[List[SQLResult], SQLResult]]:
+    async def fetch(self, query: str, *params: tuple[SQLParams], _all: bool = False
+                   ) -> Optional[Union[list[SQLResult], SQLResult]]:
         async with self.pool.acquire() as con:
             async with con.transaction():
                 cur = await con.cursor(query, *params)
@@ -38,11 +37,11 @@ class AsyncPGPool:
 
         return res
 
-    async def fetchall(self, query: str, *params: Tuple[SQLParams]
-                      ) -> Optional[Union[Tuple[SQLResult], SQLResult]]:
+    async def fetchall(self, query: str, *params: tuple[SQLParams]
+                      ) -> Optional[Union[tuple[SQLResult], SQLResult]]:
         return await self.fetch(query, *params, _all = True)
 
-    async def iterall(self, query: str, *params: Tuple[SQLParams]
+    async def iterall(self, query: str, *params: tuple[SQLParams]
                      ) -> AsyncGenerator[SQLResult, None]:
         async with self.pool.acquire() as con:
             async with con.transaction():
