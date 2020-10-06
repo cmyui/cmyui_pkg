@@ -187,7 +187,7 @@ Address = Union[tuple[str, int], str]
 
 req_line_re = re.compile(
     r'^(?P<cmd>GET|HEAD|POST|PUT|DELETE|PATCH|OPTIONS) '
-    r'(?P<path>/[^? ]+)(?P<args>\?[^ ]+)? ' # cursed?
+    r'(?P<path>/[^? ]*)(?P<args>\?[^ ]+)? ' # cursed?
     r'HTTP/(?P<httpver>1\.0|1\.1|2\.0|3\.0)$'
 )
 
