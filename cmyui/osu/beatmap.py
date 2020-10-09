@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 
 import os
-import cmyui
+import functools
 from enum import IntEnum, IntFlag, unique
 from typing import Callable, Optional
+
+from cmyui import utils
 
 __all__ = ('TimingPoint', 'SampleSet', 'HitSample', 'ObjectType',
            'HitObject', 'HitCircle', 'Slider', 'Spinner', 'ManiaHold',
            'Beatmap', 'CurveType', 'HitSound', 'Colour', 'OverlayPosition',
            'Event', 'Backgound', 'Video', 'Break')
 
-"""
+"""\
 a pretty messy but complete osu! beatmap parser.
 
 written over the span of about 12 hours,
@@ -21,7 +23,7 @@ Basic usage:
 ```
   b = Beatmap.from_file('1234567.osu')
   if not b:
-    # not found
+    # file not found
     ...
 
   # now you have basically everything
@@ -41,6 +43,7 @@ Basic usage:
   # just check the Beatmap class below >B)
   ...
 ```
+
 soon i'll be adding some kind of simulator that can play
 through the map and achieve a perfect score.. it would be
 useful for scorev2 detection on gulag too.. could finally
@@ -74,11 +77,12 @@ class TimingPoint:
         if len(tp_split := s.split(',')) != 8:
             return
 
-        # :thinking:
-        isfloat = lambda s: s.replace('.', '', 1).replace('-', '', 1).isdecimal()
+        isfloat_n = functools.partial(utils._isdecimal,
+                                      _float=True,
+                                      _negative=True)
 
         # make sure all params are at least floats
-        if not all(isfloat(x) for x in tp_split):
+        if not all(isfloat_n(x) for x in tp_split):
             return
 
         tp = cls()
@@ -509,7 +513,6 @@ class Beatmap:
         return b
 
     def _parse(self) -> None:
-        # TODO: parse osu map file version
         sec_start = self.data.find('\n\n')
         self._offset += len('osu file format v')
 
@@ -591,7 +594,7 @@ class Beatmap:
                     'Drum': SampleSet.DRUM
                 }[val]
             elif key == 'StackLeniency':
-                if not cmyui.isfloat(val):
+                if not utils._isdecimal(val, _float=True):
                     continue
 
                 self.stack_leniency = float(val)
@@ -653,12 +656,12 @@ class Beatmap:
 
                 self.bookmarks = [int(x) for x in bookmarks_str]
             elif key == 'DistanceSpacing':
-                if not cmyui.isfloat(val):
+                if not utils._isdecimal(val, _float=True):
                     continue
 
                 self.distance_spacing = float(val)
             elif key == 'BeatDivisor':
-                if not cmyui.isfloat(val):
+                if not utils._isdecimal(val, _float=True):
                     continue
 
                 self.beat_divisor = float(val)
@@ -668,7 +671,7 @@ class Beatmap:
 
                 self.grid_size = int(val)
             elif key == 'TimelineZoom':
-                if not cmyui.isfloat(val):
+                if not utils._isdecimal(val, _float=True):
                     continue
 
                 self.timeline_zoom = float(val)
@@ -723,7 +726,7 @@ class Beatmap:
             key, val = line.split(separator, 1)
 
             # all diff params should be float
-            if not cmyui.isfloat(val):
+            if not utils._isdecimal(val, _float=True):
                 continue
 
             if key == 'HPDrainRate':
@@ -776,7 +779,7 @@ class Beatmap:
         # the lines into timing point objects.
         for line in self.data[:tp_end].splitlines():
             if not (tp := TimingPoint.from_str(line)):
-                cmyui.printc('Failed to parse timing point?', cmyui.Ansi.RED)
+                utils.printc('Failed to parse timing point?', utils.Ansi.RED)
                 continue
 
             self.timing_points.append(tp)
@@ -808,7 +811,7 @@ class Beatmap:
         # the lines into hit object objects
         for line in self.data.splitlines():
             if not (ho := HitObject.from_str(line)):
-                cmyui.printc('Failed to parse hit object?', cmyui.Ansi.RED)
+                utils.printc('Failed to parse hit object?', utils.Ansi.RED)
                 continue
 
             self.hit_objects.append(ho)

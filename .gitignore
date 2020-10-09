@@ -4,3 +4,4 @@ __pycache__/
 cmyui.egg-info/
 dist/
 *.osu
+*.osr
