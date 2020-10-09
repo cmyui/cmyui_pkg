@@ -3,3 +3,4 @@ build/
 __pycache__/
 cmyui.egg-info/
 dist/
+*.osu
