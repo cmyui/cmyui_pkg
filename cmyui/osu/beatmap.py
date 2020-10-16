@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
 
 import os
-import functools
 from enum import IntEnum, IntFlag, unique
+from functools import cached_property, partial
 from typing import Callable, Optional
-
 from cmyui import utils
 
 __all__ = ('TimingPoint', 'SampleSet', 'HitSample', 'ObjectType',
            'HitObject', 'HitCircle', 'Slider', 'Spinner', 'ManiaHold',
            'Beatmap', 'CurveType', 'HitSound', 'Colour', 'OverlayPosition',
-           'Event', 'Backgound', 'Video', 'Break')
+           'Event', 'Background', 'Video', 'Break')
 
 """\
 a pretty messy but complete osu! beatmap parser.
@@ -72,14 +71,20 @@ class TimingPoint:
         self.uninherited: Optional[bool] = None
         self.effects: Optional[int] = None
 
+    @cached_property
+    def bpm(self) -> int:
+        return 1 / self.beat_length * 1000 * 60
+
     @classmethod
     def from_str(cls, s: str):
         if len(tp_split := s.split(',')) != 8:
             return
 
-        isfloat_n = functools.partial(utils._isdecimal,
-                                      _float=True,
-                                      _negative=True)
+        isfloat_n = partial(
+            utils._isdecimal,
+            _float = True,
+            _negative = True
+        )
 
         # make sure all params are at least floats
         if not all(isfloat_n(x) for x in tp_split):
@@ -247,10 +252,11 @@ class Slider(HitObject):
 
     @classmethod
     def from_str(cls, s, **kwargs):
-        if len(split := s.split(',')) != 6:
+        if len(split := s.split(',')) < 3:
             return
 
-        ctype, cpoints = split[0].split('|', 1)
+        _curve, _slides, _slen, *_extra = split
+        ctype, cpoints = _curve.split('|', 1)
 
         kwargs |= {
             'curve_type': {
@@ -258,14 +264,17 @@ class Slider(HitObject):
                 'L': CurveType.Linear, 'P': CurveType.Perfect
             }[ctype],
             'curve_points': cpoints.split('|'),
-            'slides': int(split[1]),
-            'length': float(split[2]),
-            'edge_sounds': [int(x) for x in split[3].split('|')],
-            'edge_sets': [x.split(':', 1) for x in split[4].split('|')]
+            'slides': int(_slides),
+            'length': float(_slen)
         }
 
-        if split[5] != '0:0:0:0:':
-            kwargs |= {'hit_sample': HitSample.from_str(split[5])}
+        if _extra:
+            assert len(_extra) == 3
+            kwargs |= {
+                'edge_sounds': [int(x) for x in _extra[0].split('|')],
+                'edge_sets': [x.split(':', 1) for x in _extra[1].split('|')],
+                'hit_sample': HitSample.from_str(_extra[2])
+            }
 
         return cls(**kwargs)
 

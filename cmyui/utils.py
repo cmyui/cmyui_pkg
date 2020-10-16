@@ -10,12 +10,22 @@ from datetime import (
     timedelta as td
 )
 
-__all__ = ('get_timestamp', 'isfloat', 'rstring', 'Ansi', 'printc')
+__all__ = ('get_timestamp', '_isdecimal', 'rstring', 'Ansi', 'printc')
 
 ts_fmt = ('%I:%M:%S%p', '%d/%m/%Y %I:%M:%S%p')
 tz_est = tz(td(hours = -4), 'EDT')
 def get_timestamp(full: bool = False) -> str:
     return f'{dt.now(tz = tz_est):{ts_fmt[full]}}'
+
+def _isdecimal(s: str, _float: bool = False,
+               _negative: bool = False) -> None:
+    if _float:
+        s = s.replace('.', '', 1)
+
+    if _negative:
+        s = s.replace('-', '', 1)
+
+    return s.isdecimal()
 
 def isfloat(s: str) -> bool:
     return s.replace('.', '', 1).isdecimal()

@@ -3,7 +3,7 @@
 import os
 import lzma
 import struct
-import functools
+from functools import cached_property, partial
 from enum import IntFlag, unique
 from typing import Optional
 
@@ -52,13 +52,28 @@ class ReplayFrame:
         self.y: Optional[float] = kwargs.get('y', None)
         self.keys: Optional[Keys] = kwargs.get('keys', None)
 
+    @cached_property
+    def as_bytes(self) -> bytes:
+        buf = bytearray()
+        buf.extend(self.delta.to_bytes(4, 'little', signed=True))
+        buf.extend(struct.pack('<ff', self.x, self.y))
+        buf.append(self.keys)
+
+        return bytes(buf)
+
+    @cached_property
+    def as_str(self) -> str:
+        # we want to display the keys as an integer.
+        fmt_dict = self.__dict__ | {'keys': int(self.keys)}
+        return '{delta}|{x}|{y}|{keys}'.format(**fmt_dict)
+
     @classmethod
     def from_str(cls, s: str):
         if len(split := s.split('|')) != 4:
             return
 
-        isdecimal_n = functools.partial(utils._isdecimal, _negative=True)
-        isfloat_n = functools.partial(isdecimal_n, _float=True)
+        isdecimal_n = partial(utils._isdecimal, _negative=True)
+        isfloat_n = partial(isdecimal_n, _float=True)
 
         if not all(isdecimal_n(x) for x in (split[0], split[3])):
             return
@@ -101,7 +116,8 @@ class Replay:
         self.life_graph: Optional[list[tuple[int, float]]] = None # zz
         self.timestamp: Optional[int] = None
         self.score_id: Optional[int] = None
-        self.mod_extras = None # TODO (tp only)
+        self.mod_extras: Optional[float] = None
+        self.seed: Optional[int] = None
 
         """ replay frames """
         self.frames: Optional[list[ReplayFrame]] = None
@@ -219,11 +235,15 @@ class Replay:
         lzma_len = self._read_int()
         lzma_data = lzma.decompress(self._read_raw(lzma_len))
 
-        for action in lzma_data.decode().split(','):
+        actions = [x for x in lzma_data.decode().split(',') if x]
+
+        for action in actions[:-1]:
             frame = ReplayFrame.from_str(action)
+
             if not frame:
                 continue
 
             frames.append(frame)
 
+        self.seed = int(actions[-1].rsplit('|', 1)[1])
         return frames
