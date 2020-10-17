@@ -16,7 +16,7 @@ from collections import defaultdict
 from enum import IntEnum, unique
 from typing import AsyncGenerator, Optional, Union
 
-from . import utils
+from .logging import log, Ansi
 
 __all__ = (
     # Information
@@ -229,7 +229,7 @@ class AsyncConnection:
 
         # Make sure request line is properly formatted.
         if not (m := req_line_re.match(data[:delim])):
-            utils.printc('Invalid request line', utils.Ansi.LRED)
+            log('Invalid request line', Ansi.LRED)
             return
 
         # cmd & httpver are fine as-is
@@ -246,7 +246,7 @@ class AsyncConnection:
             header = header_line.split(':', 1)
 
             if len(header) != 2: # Only key received.
-                utils.printc('Invalid header', utils.Ansi.LRED)
+                log('Invalid header', Ansi.LRED)
                 return
 
             self.headers.update({header[0]: header[1].lstrip()})
@@ -256,7 +256,7 @@ class AsyncConnection:
                 param = param_line.split('=', 1)
 
                 if len(param) != 2: # Only key received.
-                    utils.printc(f'Invalid url path argument')
+                    log(f'Invalid url path argument', Ansi.RED)
                     return
 
                 self.args.update({param[0]: param[1]})
@@ -385,7 +385,7 @@ class AsyncConnection:
         try: # Send all data to client.
             await loop.sock_sendall(self.client, response)
         except BrokenPipeError:
-            utils.printc('Connection ended abruptly', utils.Ansi.LRED)
+            log('Connection ended abruptly', Ansi.LRED)
 
 class AsyncTCPServer:
     """\
@@ -443,7 +443,7 @@ class AsyncTCPServer:
                 with open(f'ss/{ss_id}.png', 'wb') as f:
                     f.write(conn.files['screenshot'])
 
-                cmyui.printc(f'Saved screenshot {ss_id}.png', cmyui.Ansi.LGREEN)
+                log(f'Saved screenshot {ss_id}.png', Ansi.LGREEN)
                 return
             else:
                 await conn.send(404, b'Handler not found.')
