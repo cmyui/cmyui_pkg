@@ -14,7 +14,7 @@ import os
 import re
 from collections import defaultdict
 from enum import IntEnum, unique
-from typing import (AsyncGenerator, Optional, Union)
+from typing import AsyncGenerator, Optional, Union
 
 from . import utils
 
@@ -193,7 +193,7 @@ req_line_re = re.compile(
 
 class AsyncConnection:
     __slots__ = (
-        'client', 'addr',
+        'client',
 
         # Request params
         'headers', 'body', 'cmd',
@@ -204,9 +204,8 @@ class AsyncConnection:
     )
 
     # TODO: probably cut back on the defaultdicts
-    def __init__(self, client: socket.socket, addr: Address) -> None:
+    def __init__(self, client: socket.socket) -> None:
         self.client = client
-        self.addr = addr
 
         # Request params
         self.headers: defaultdict[str, str] = defaultdict(lambda: None)
@@ -230,7 +229,7 @@ class AsyncConnection:
 
         # Make sure request line is properly formatted.
         if not (m := req_line_re.match(data[:delim])):
-            utils.printc('Invalid request line', utils.Ansi.LIGHT_RED)
+            utils.printc('Invalid request line', utils.Ansi.LRED)
             return
 
         # cmd & httpver are fine as-is
@@ -247,7 +246,7 @@ class AsyncConnection:
             header = header_line.split(':', 1)
 
             if len(header) != 2: # Only key received.
-                utils.printc('Invalid header', utils.Ansi.LIGHT_RED)
+                utils.printc('Invalid header', utils.Ansi.LRED)
                 return
 
             self.headers.update({header[0]: header[1].lstrip()})
@@ -301,78 +300,172 @@ class AsyncConnection:
 
     async def read(self) -> bytes:
         loop = asyncio.get_event_loop()
-        _data = b''
 
-        while b'\r\n\r\n' not in _data: # read for headers in 512 byte chunks
-            _data += await loop.sock_recv(self.client, 512)
+        # create a temp buffer, and read until we find
+        # b'\r\n\r\n', meaning we've read all the headers.
+        temp_buf = b''
 
-        delim = _data.find(b'\r\n\r\n')
+        while b'\r\n\r\n' not in temp_buf:
+            # read for headers in 512 byte chunks, this will
+            # usually only have to read once, sometimes twice.
+            temp_buf += await loop.sock_recv(self.client, 512)
+
+        delim = temp_buf.find(b'\r\n\r\n')
 
         # we've read all the headers, parse them
-        await self.parse_headers(_data[:delim].decode())
+        await self.parse_headers(temp_buf[:delim].decode())
 
         if 'Content-Length' not in self.headers:
             # there was either a problem parsing,
             # or the request only contains headers
             return
 
-        body_length = int(self.headers['Content-Length'])
+        # advance our temp buffer to the beginning of the body.
+        temp_buf = temp_buf[delim + 4:]
 
-        # cut off headers
-        _data = _data[delim + 4:]
+        # since we were reading from the socket in chunks, we
+        # almost definitely overshot and have some of the body
+        # in our temp buffer. calculate how much we have.
+        already_read = len(temp_buf)
 
-        read_prealloc = len(_data)
+        # now that we have our headers, we can allocate our 'real'
+        # buffer with the content length included in the headers.
+        content_length = int(self.headers['Content-Length'])
+        buf = bytearray(content_length)
 
-        buf = bytearray(body_length)
-        buf[:read_prealloc] = _data
-        view = memoryview(buf)[read_prealloc:]
-        toread = body_length - read_prealloc
+        # add the data we've already read to our
+        # real buffer, and advance the reader.
+        buf[:already_read] = temp_buf
+        view = memoryview(buf)[already_read:]
+        toread = content_length - already_read
 
+        # continue reading from the socket until we've read the
+        # entirety of the data described with the content length.
+        # TODO: implement some sort of timeout system..
         while toread:
             nbytes = await loop.sock_recv_into(self.client, view)
             view = view[nbytes:]
             toread -= nbytes
 
-        # all data read from socket
+        # save data to our connection object as immutable bytes.
         self.body = bytes(buf)
 
-        # if the body is multipart/form-data,
-        # read the arguments into `self.args`.
-        if 'Content-Type' in self.headers and \
-        self.headers['Content-Type'].startswith('multipart/form-data'):
-            await self.parse_multipart()
+        if self.cmd == 'POST':
+            # if we're parsing a POST request, there may
+            # still be arguments passed as multipart/form-data.
+            ct = self.headers['Content-Type']
+            if ct and ct.startswith('multipart/form-data'):
+                await self.parse_multipart()
 
     """ Response methods """
 
     async def add_resp_header(self, header: str, index: int = -1) -> None:
-        if index > -1: # Insert
+        if index > -1:
             self.resp_headers.insert(index, header)
-        else: # Append
+        else:
             self.resp_headers.append(header)
 
-    async def send(self, status: Union[HTTPStatus, int],
-                   data: Optional[bytes] = None) -> None:
+    async def send(self, status: Union[HTTPStatus, int], body: bytes = b'') -> None:
+        """Attach appropriate headers and send data back to the client."""
         # Insert HTTP response line & content at the beginning of headers.
-        await self.add_resp_header(f'HTTP/1.1 {repr(HTTPStatus(status)).upper()}', 0)
+        await self.add_resp_header(f'HTTP/1.1 {HTTPStatus(status)!r}'.upper(), 0)
 
-        if data: # Add content-length if we have any data.
-            await self.add_resp_header(f'Content-Length: {len(data)}', 1)
+        if body: # Add content-length header if we are sending a body.
+            await self.add_resp_header(f'Content-Length: {len(body)}', 1)
 
-        # Encode the headers
-        ret = bytearray('\r\n'.join(self.resp_headers).encode() + b'\r\n\r\n')
+        # Encode the headers.
+        headers_str = '\r\n'.join(self.resp_headers)
+        response = f'{headers_str}\r\n\r\n'.encode()
 
-        if data: # append body if there is one.
-            await self.add_resp_header(f'Content-Length: {len(data)}', 1)
-            ret.extend(data)
+        if body:
+            response += body
 
         loop = asyncio.get_event_loop()
 
         try: # Send all data to client.
-            await loop.sock_sendall(self.client, bytes(ret))
+            await loop.sock_sendall(self.client, response)
         except BrokenPipeError:
-            utils.printc('Connection ended abruptly', utils.Ansi.LIGHT_RED)
+            utils.printc('Connection ended abruptly', utils.Ansi.LRED)
 
 class AsyncTCPServer:
+    """\
+    Create a TCP socket server which can asynchronously listen and yield connections.
+
+    Simple usage:
+    ```
+    import asyncio
+    import cmyui
+    import time
+
+    async def handle_conn(conn: cmyui.AsyncConnection) -> None:
+        # see the AsyncConnection implementation for
+        # details on it's use and methods/attributes.
+
+        # i've provided a simple server example below.
+
+        if 'Host' not in conn.headers:
+            await conn.send(400, b'Missing required headers.')
+            return
+
+        st = time.time()
+
+        if conn.cmd == 'GET':
+            if conn.path == '/math/sum.php':
+                if 'x' not in conn.args or 'y' not in conn.args:
+                    await conn.send(400, b'Must supply x & y parameters.')
+                    return
+
+                x = conn.args['x']
+                y = conn.args['y']
+
+                if not x.isdecimal() or not y.isdecimal():
+                    await conn.send(400, b'Must supply integral parameters.')
+                    return
+
+                await conn.send(200, f'Sum: {x + y}'.encode())
+                return
+            else:
+                await conn.send(404, b'Handler not found.')
+                return
+        elif conn.cmd == 'POST':
+            if conn.path.startswith('/ss/') and conn.path.endswith('.png'):
+                # POSTing with screenshot in multipart data as a file.
+                if 'screenshot' not in conn.files:
+                    await conn.send(400, b'Missing screenshot data.')
+                    return
+
+                ss_id = conn.path[4:-4]
+
+                if not ss_id.isdecimal():
+                    await conn.send(400, b'Invalid screenshot id.')
+                    return
+
+                with open(f'ss/{ss_id}.png', 'wb') as f:
+                    f.write(conn.files['screenshot'])
+
+                cmyui.printc(f'Saved screenshot {ss_id}.png', cmyui.Ansi.LGREEN)
+                return
+            else:
+                await conn.send(404, b'Handler not found.')
+                return
+        else:
+            await conn.send(400, b'Handler not found.')
+            return
+
+    async def run_server():
+        loop = asyncio.get_event_loop()
+
+        # support for both ipv4 and unix domain sockets
+        addr = ('127.0.0.1', 5001) # ipv4
+        addr = '/tmp/gulag.sock' # unix domain
+
+        async with cmyui.AsyncTCPServer(addr) as serv:
+            async for conn in serv.listen(max_conns=16):
+                loop.create_task(handle_conn(conn))
+
+    asyncio.run(run_server())
+    ```
+    """
     __slots__ = ('addr', 'sock_family', 'listening')
     def __init__(self, addr: Address) -> None:
         is_inet = isinstance(addr, tuple) \
@@ -384,7 +477,7 @@ class AsyncTCPServer:
         elif isinstance(addr, str):
             self.sock_family = socket.AF_UNIX
         else:
-            raise Exception('Invalid address.')
+            raise ValueError('Invalid address.')
 
         self.addr = addr
         self.listening = False
@@ -416,7 +509,7 @@ class AsyncTCPServer:
             sock.setblocking(False)
 
             while self.listening:
-                client, addr = await loop.sock_accept(sock)
-                conn = AsyncConnection(client, addr)
+                client, _ = await loop.sock_accept(sock)
+                conn = AsyncConnection(client)
                 await conn.read()
                 yield conn
