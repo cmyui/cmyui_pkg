@@ -5,7 +5,7 @@ with open('README.md', 'r') as f:
 
 setuptools.setup(
     name = 'cmyui',
-    version = '1.4.5',
+    version = '1.4.6',
     author = 'cmyui',
     author_email = 'cmyuiosu@gmail.com',
     description = 'Generic classes I find myself rewriting over and over again.',
@@ -19,4 +19,7 @@ setuptools.setup(
         'Operating System :: OS Independent',
     ],
     python_requires = '>=3.9',
+    package_data = {
+        'cmyui': ['py.typed'],
+    }
 )

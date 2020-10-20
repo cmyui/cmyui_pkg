@@ -208,18 +208,19 @@ class AsyncConnection:
         self.client = client
 
         # Request params
-        self.headers: defaultdict[str, str] = defaultdict(lambda: None)
+        self.headers = defaultdict(None)
         self.body: Optional[bytearray] = None
-        self.cmd: Optional[str] = None
-        self.path: Optional[str] = None
-        self.httpver: Optional[float] = None
+        self.cmd = ''
+        self.path = ''
+        self.httpver = 0.0
 
-        self.args: defaultdict[str, str] = defaultdict(lambda: None)
-        self.files: defaultdict[str, bytes] = defaultdict(lambda: None)
+        self.args = defaultdict(None)
+        self.multipart_args = defaultdict(None)
+
+        self.files = defaultdict(None)
 
         # Response params
         self.resp_headers: list[str] = []
-        self.multipart_args: defaultdict[str, str] = defaultdict(lambda: None)
 
     """ Request methods """
 
@@ -328,27 +329,28 @@ class AsyncConnection:
         # in our temp buffer. calculate how much we have.
         already_read = len(temp_buf)
 
-        # now that we have our headers, we can allocate our 'real'
-        # buffer with the content length included in the headers.
+        # get the length of the body, and check whether we've
+        # already have the entirety within in our temp buffer.
         content_length = int(self.headers['Content-Length'])
-        buf = bytearray(content_length)
 
-        # add the data we've already read to our
-        # real buffer, and advance the reader.
-        buf[:already_read] = temp_buf
-        view = memoryview(buf)[already_read:]
-        toread = content_length - already_read
+        if already_read != content_length:
+            # there is still data to read; now that we know
+            # the length remaining, we can allocate a static
+            # buffer and read into a view for high efficiency.
+            to_read = content_length - already_read
+            buf = bytearray(to_read)
+            view = memoryview(buf)
 
-        # continue reading from the socket until we've read the
-        # entirety of the data described with the content length.
-        # TODO: implement some sort of timeout system..
-        while toread:
-            nbytes = await loop.sock_recv_into(self.client, view)
-            view = view[nbytes:]
-            toread -= nbytes
+            while to_read:
+                nbytes = await loop.sock_recv_into(self.client, view)
+                view = view[nbytes:]
+                to_read -= nbytes
 
-        # save data to our connection object as immutable bytes.
-        self.body = bytes(buf)
+            # save data to our connection object as immutable bytes.
+            self.body = temp_buf + bytes(buf)
+        else:
+            # we already have all the data.
+            self.body = temp_buf
 
         if self.cmd == 'POST':
             # if we're parsing a POST request, there may
