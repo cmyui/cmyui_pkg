@@ -5,7 +5,7 @@ with open('README.md', 'r') as f:
 
 setuptools.setup(
     name = 'cmyui',
-    version = '1.4.6',
+    version = '1.4.7',
     author = 'cmyui',
     author_email = 'cmyuiosu@gmail.com',
     description = 'Generic classes I find myself rewriting over and over again.',

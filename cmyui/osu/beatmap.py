@@ -31,7 +31,7 @@ Basic usage:
   # most complex structures are classes,
   # with many attributes within them..
   for tp in b.timing_points:
-    print(tp.time, tp.beat_length, obk.meter, ...)
+    print(tp.time, tp.beat_length, tp.meter, ...)
     ...
 
   for obj in b.hit_objects:
@@ -49,7 +49,7 @@ useful for scorev2 detection on gulag too.. could finally
 be rid of the scorev2 bugginess :o
 """
 
-# who knows why, but  different sections
+# who knows why, but different sections
 # of the beatmap file use different
 # k:v pair spacing in them.. lol
 _separators = {
