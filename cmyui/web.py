@@ -355,9 +355,11 @@ class AsyncConnection:
         if self.cmd == 'POST':
             # if we're parsing a POST request, there may
             # still be arguments passed as multipart/form-data.
-            ct = self.headers['Content-Type']
-            if ct and ct.startswith('multipart/form-data'):
-                await self.parse_multipart()
+
+            if 'Content-Type' in self.headers:
+                ct = self.headers['Content-Type']
+                if ct and ct.startswith('multipart/form-data'):
+                    await self.parse_multipart()
 
     """ Response methods """
 

@@ -11,3 +11,4 @@ Source: https://github.com/cmyui/cmyui_pkg
 
 from .beatmap import *
 from .replay import *
+from .api import *
