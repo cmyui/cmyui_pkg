@@ -3,7 +3,7 @@
 import aiomysql
 from typing import Sequence, Any
 from mysql.connector.pooling import MySQLConnectionPool
-from typing import Optional, Union, AsyncGenerator
+from typing import Optional, AsyncGenerator
 
 __all__ = (
     'SQLParams',
@@ -54,7 +54,7 @@ class SQLPoolWrapper:
         return res
 
     def fetchall(self, query: str, params: SQLParams = [],
-                 _dict: bool = True ) -> SQLResult:
+                 _dict: bool = True ) -> tuple[SQLResult, ...]:
         return self.fetch(query, params, _all=True, _dict=_dict)
 
 class AsyncSQLPoolWrapper:
@@ -63,8 +63,12 @@ class AsyncSQLPoolWrapper:
     def __init__(self):
         self.pool: Optional[aiomysql.Pool] = None
 
-    async def connect(self, **config):
+    async def connect(self, config):
         self.pool = await aiomysql.create_pool(**config)
+
+    async def close(self) -> None:
+        self.pool.close()
+        await self.pool.wait_closed()
 
     async def execute(self, query: str, params: SQLParams = []) -> int:
         async with self.pool.acquire() as conn:
@@ -94,7 +98,7 @@ class AsyncSQLPoolWrapper:
         return res
 
     async def fetchall(self, query: str, params: SQLParams = [],
-                       _dict: bool = True) -> SQLResult:
+                       _dict: bool = True) -> tuple[SQLResult, ...]:
         return await self.fetch(query, params, _all=True, _dict=_dict)
 
     async def iterall(self, query: str, params: SQLParams = [],

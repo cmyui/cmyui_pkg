@@ -60,9 +60,13 @@ class AnsiRGB:
 
 Ansi_T = Union[Ansi, AnsiRGB]
 
+stdout_write = sys.stdout.write
+stdout_flush = sys.stdout.flush
+
 def printc(s: str, col: Ansi_T) -> None:
     """Print a string, in a specified ansi colour."""
-    sys.stdout.write(f'{col!r}{s}{Ansi.RESET!r}\n')
+    stdout_write(f'{col!r}{s}{Ansi.RESET!r}\n')
+    stdout_flush()
 
 def log(msg: str, col: Optional[Ansi_T] = None, fd: str = None) -> None:
     """\
@@ -71,13 +75,15 @@ def log(msg: str, col: Optional[Ansi_T] = None, fd: str = None) -> None:
     Allows for the functionality to write to a file as
     well by passing the filepath with the `fd` parameter.
     """
-    print('{gray!r}[{ts}] {col!r}{msg}{reset!r}'.format(
+    stdout_write('{gray!r}[{ts}] {col!r}{msg}{reset!r}\n'.format(
         gray = Ansi.GRAY,
         ts = get_timestamp(full=False),
         col = col or Ansi.RESET,
         msg = msg,
         reset = Ansi.RESET
     ))
+
+    stdout_flush()
 
     if not fd:
         return
