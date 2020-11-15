@@ -13,7 +13,7 @@ from datetime import (
 __all__ = ('get_timestamp', '_isdecimal', 'rstring', 'async_cache')
 
 ts_fmt = ('%I:%M:%S%p', '%d/%m/%Y %I:%M:%S%p')
-tz_est = tz(td(hours = -4), 'EDT')
+tz_est = tz(td(hours = -5), 'EST') # TODO: fix for edt switch lol
 def get_timestamp(full: bool = False) -> str:
     return f'{dt.now(tz = tz_est):{ts_fmt[full]}}'
 
