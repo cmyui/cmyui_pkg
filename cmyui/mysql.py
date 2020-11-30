@@ -6,20 +6,23 @@ from mysql.connector.pooling import MySQLConnectionPool
 from typing import Optional, AsyncGenerator
 
 __all__ = (
+    # Informational
     'SQLParams',
     'SQLResult',
-    'SQLPoolWrapper',
-    'AsyncSQLPoolWrapper'
+
+    # Functional
+    'SQLPool',
+    'AsyncSQLPool'
 )
 
 SQLParams = Sequence[Any]
 SQLResult = Optional[dict[str, Any]]
 
-class SQLPoolWrapper:
+class SQLPool:
     __slots__ = ('conn',)
 
     def __init__(self, **kwargs):
-        self.conn = MySQLConnectionPool(autocommit = True, **kwargs)
+        self.conn = MySQLConnectionPool(autocommit=True, **kwargs)
 
     def execute(self, query: str, params: SQLParams = []) -> int:
         if not (cnx := self.conn.get_connection()):
@@ -57,7 +60,7 @@ class SQLPoolWrapper:
                  _dict: bool = True ) -> tuple[SQLResult, ...]:
         return self.fetch(query, params, _all=True, _dict=_dict)
 
-class AsyncSQLPoolWrapper:
+class AsyncSQLPool:
     __slots__ = ('pool',)
 
     def __init__(self):

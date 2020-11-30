@@ -10,22 +10,26 @@
 
 import asyncio
 import socket
+import signal
 import os
 import re
+import gzip
 from collections import defaultdict
 from enum import IntEnum, unique
-from typing import AsyncGenerator, Optional, Union
+from typing import Callable, Coroutine, Optional, Union
 
-from .logging import log, Ansi
+from .logging import log, Ansi, AnsiRGB
 
 __all__ = (
-    # Information
+    # Informational
     'HTTPStatus',
     'Address',
 
-    # Asynchronous
-    'AsyncConnection',
-    'AsyncTCPServer'
+    # Functional
+    'Connection',
+    'RouteMap',
+    'Domain',
+    'Server'
 )
 
 _httpstatus_str = {
@@ -191,16 +195,19 @@ req_line_re = re.compile(
     r'HTTP/(?P<httpver>1\.0|1\.1|2\.0|3\.0)$'
 )
 
-class AsyncConnection:
+class Connection:
     __slots__ = (
         'client',
 
         # Request params
         'headers', 'body', 'cmd',
-        'path', 'httpver', 'args', 'files',
+        'path', 'httpver',
+
+        'args', 'multipart_args', 'files',
 
         # Response params
-        'resp_headers', 'multipart_args'
+        'resp_code', 'resp_headers',
+
     )
 
     # TODO: probably cut back on the defaultdicts
@@ -220,6 +227,7 @@ class AsyncConnection:
         self.files = defaultdict(None)
 
         # Response params
+        self.resp_code: int = 200
         self.resp_headers: list[str] = []
 
     """ Request methods """
@@ -363,7 +371,7 @@ class AsyncConnection:
 
     """ Response methods """
 
-    async def add_resp_header(self, header: str, index: int = -1) -> None:
+    def add_resp_header(self, header: str, index: int = -1) -> None:
         if index > -1:
             self.resp_headers.insert(index, header)
         else:
@@ -372,10 +380,10 @@ class AsyncConnection:
     async def send(self, status: Union[HTTPStatus, int], body: bytes = b'') -> None:
         """Attach appropriate headers and send data back to the client."""
         # Insert HTTP response line & content at the beginning of headers.
-        await self.add_resp_header(f'HTTP/1.1 {HTTPStatus(status)!r}'.upper(), 0)
+        self.add_resp_header(f'HTTP/1.1 {HTTPStatus(status)!r}'.upper(), 0)
 
         if body: # Add content-length header if we are sending a body.
-            await self.add_resp_header(f'Content-Length: {len(body)}', 1)
+            self.add_resp_header(f'Content-Length: {len(body)}', 1)
 
         # Encode the headers.
         headers_str = '\r\n'.join(self.resp_headers)
@@ -391,52 +399,201 @@ class AsyncConnection:
         except BrokenPipeError:
             log('Connection ended abruptly', Ansi.LRED)
 
-class AsyncTCPServer:
-    """Create a TCP socket server which can asynchronously listen and yield connections."""
-    __slots__ = ('addr', 'sock_family', 'listening')
-    def __init__(self, addr: Address) -> None:
-        is_inet = isinstance(addr, tuple) \
-              and len(addr) == 2 \
-              and all(isinstance(i, t) for i, t in zip(addr, (str, int)))
+class Route:
+    """A single endpoint within of domain."""
+    __slots__ = ('key', 'methods', 'handler')
+    def __init__(self, key: Union[str, re.Pattern],
+                 methods: list[str], handler: Callable) -> None:
+        self.key = key
+        self.methods = methods
+        self.handler = handler
+
+    def matches(self, key: Union[str, re.Pattern], method: str) -> bool:
+        # Check if a given `key` matches our internal `self.key`.
+        if method not in self.methods:
+            return False
+
+        if isinstance(self.key, str):
+            return self.key == key
+        elif isinstance(self.key, re.Pattern):
+            return self.key.match(key)
+        else:
+            raise TypeError('Key should be str or re.Pattern object.')
+
+class RouteMap:
+    """A collection of endpoints of a domain."""
+    __slots__ = ('routes',)
+    def __init__(self) -> None:
+        self.routes = set() # {Route(), ...}
+
+    def route(self, path: Union[str, re.Pattern],
+              methods: list[str] = ['GET']) -> Callable:
+        """Add a possible route to the server."""
+        if type(path) not in (str, re.Pattern):
+            raise TypeError('Route path must be str or regex pattern.')
+
+        def wrapper(f: Coroutine) -> Coroutine:
+            self.routes.add(Route(path, methods, f))
+            return f
+        return wrapper
+
+    def find_route(self, path: str, method: str):
+        for route in self.routes:
+            if route.matches(path, method):
+                return route
+
+class Domain(RouteMap):
+    """The main routemap, with a hostname.
+       Allows for merging of additional routemaps."""
+    __slots__ = ('hostname',)
+    def __init__(self, hostname: Union[str, re.Pattern]) -> None:
+        super().__init__()
+        self.hostname = hostname
+
+    def matches(self, hostname: Union[str, re.Pattern]) -> bool:
+        # Check if a given `hostname` matches stored value.
+        if isinstance(self.hostname, str):
+            return self.hostname == hostname
+        elif isinstance(self.hostname, re.Pattern):
+            return self.hostname.match(hostname)
+        else:
+            raise TypeError('Key should be str or re.Pattern object.')
+
+    def add_map(rmap: RouteMap) -> None:
+        self.routes |= rmap.routes
+
+# TODO: perhaps implement Server, or refactor
+# both into one with a kwarg for async? moyai
+class Server:
+    """An asynchronous multi-domain server."""
+    __slots__ = ('name', 'max_conns', 'gzip',
+                 'verbose', 'domains', 'tasks')
+    def __init__(self, **kwargs) -> None:
+        self.name = kwargs.pop('name', 'Server')
+        self.max_conns = kwargs.pop('max_conns', 5)
+        self.gzip = kwargs.pop('gzip', 0) # 0-9 valid levels
+        self.verbose = kwargs.pop('verbose', False)
+
+        self.domains = set()
+        self.tasks = set()
+
+    # Domain management
+
+    def add_domain(self, domain: Domain) -> None:
+        self.domains.add(domain)
+
+    def add_domains(self, domains: set[Domain]) -> None:
+        self.domains |= domains
+
+    def remove_domain(self, domain: Domain) -> None:
+        self.domains.remove(domain)
+
+    def remove_domains(self, domains: set[Domain]) -> None:
+        self.domains -= domains
+
+    def find_domain(self, host_header: str):
+        for domain in self.domains:
+            if domain.matches(host_header):
+                return domain
+
+    # Task management
+
+    def add_task(self, task: asyncio.Task) -> None:
+        self.tasks.add(task)
+
+    def remove_task(self, task: asyncio.Task) -> None:
+        self.tasks.remove(task)
+
+    def add_tasks(self, tasks: set[asyncio.Task]) -> None:
+        self.tasks |= tasks
+
+    def remove_tasks(self, tasks: set[asyncio.Task]) -> None:
+        self.tasks -= tasks
+
+    # True Internals
+
+    async def dispatch(self, conn: Connection) -> None:
+        """Dispatch the connection to any matching routes."""
+        if 'Host' not in conn.headers:
+            log(f'No host? {conn.path}')
+            return
+
+        host = conn.headers['Host']
+        path = conn.path
+
+        resp = None
+
+        import time
+        st = time.time_ns()
+
+        if domain := self.find_domain(host):
+            if route := domain.find_route(path, conn.cmd):
+                resp = await route.handler(conn) or b''
+
+        if resp is not None:
+            code, resp = resp if isinstance(resp, tuple) else (200, resp)
+
+            if self.gzip > 0:
+                resp = gzip.compress(resp, self.gzip)
+                conn.add_resp_header('Content-Encoding: gzip')
+
+            time_taken = (time.time_ns() - st) / 1e6
+
+            log(f'[{code}] {host}{path}', Ansi.LGREEN)
+            log(f'Request took {time_taken:.2f}ms', Ansi.LBLUE)
+            await conn.send(code, resp)
+        else:
+            log(f'[???] {host}{path}.', Ansi.LYELLOW)
+            await conn.send(404, b'Not Found.')
+
+    def run(self, addr: Address) -> None:
+        is_inet = type(addr) is tuple and len(addr) == 2 and \
+                  type(addr[0]) is str and type(addr[1]) is int
 
         if is_inet:
-            self.sock_family = socket.AF_INET
+            sock_family = socket.AF_INET
+            using_unix = False
         elif isinstance(addr, str):
-            self.sock_family = socket.AF_UNIX
+            sock_family = socket.AF_UNIX
+            using_unix = True
         else:
             raise ValueError('Invalid address.')
 
-        self.addr = addr
-        self.listening = False
+        """Run the server indefinitely."""
+        async def runner() -> None:
+            loop = asyncio.get_event_loop()
 
-    async def __aenter__(self) -> None:
-        return self
+            try:
+                loop.add_signal_handler(signal.SIGINT, loop.stop)
+                loop.add_signal_handler(signal.SIGTERM, loop.stop)
+            except NotImplementedError:
+                pass
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        pass
+            # Start up any tasks
+            for task in self.tasks:
+                loop.create_task(task)
 
-    async def listen(self, max_conns: int = 5
-                    ) -> AsyncGenerator[AsyncConnection, None]:
-        if using_unix := self.sock_family == socket.AF_UNIX:
-            # Remove unix socket if it already exists.
-            if os.path.exists(self.addr):
-                os.remove(self.addr)
-
-        loop = asyncio.get_event_loop()
-
-        sock: socket.socket
-        with socket.socket(self.sock_family, socket.SOCK_STREAM) as sock:
-            sock.bind(self.addr)
+            # Setup socket & begin listening
 
             if using_unix:
-                os.chmod(self.addr, 0o777)
+                if os.path.exists(addr):
+                    os.remove(addr)
 
-            self.listening = True
-            sock.listen(max_conns)
-            sock.setblocking(False)
+            with socket.socket(sock_family) as sock:
+                sock.bind(addr)
 
-            while self.listening:
-                client, _ = await loop.sock_accept(sock)
-                conn = AsyncConnection(client)
-                await conn.read()
-                yield conn
+                if using_unix:
+                    os.chmod(addr, 0o777)
+
+                sock.listen(self.max_conns)
+                sock.setblocking(False)
+
+                log(f'{self.name} listening @ {addr}', AnsiRGB(0x00ff7f))
+
+                while True:
+                    client, _ = await loop.sock_accept(sock)
+                    conn = Connection(client)
+                    await conn.read()
+                    loop.create_task(self.dispatch(conn))
+
+        asyncio.run(runner())
