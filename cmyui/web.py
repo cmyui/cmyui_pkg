@@ -13,6 +13,7 @@ import socket
 import signal
 import os
 import re
+import time
 import gzip
 from collections import defaultdict
 from enum import IntEnum, unique
@@ -512,19 +513,12 @@ class Server:
 
     # True Internals
 
-    async def dispatch(self, conn: Connection) -> None:
+    async def dispatch(self, conn: Connection) -> int:
         """Dispatch the connection to any matching routes."""
-        if 'Host' not in conn.headers:
-            log(f'No host? {conn.path}')
-            return
-
         host = conn.headers['Host']
         path = conn.path
 
         resp = None
-
-        import time
-        st = time.time_ns()
 
         if domain := self.find_domain(host):
             if route := domain.find_route(path, conn.cmd):
@@ -536,15 +530,11 @@ class Server:
             if self.gzip > 0:
                 resp = gzip.compress(resp, self.gzip)
                 conn.add_resp_header('Content-Encoding: gzip')
-
-            time_taken = (time.time_ns() - st) / 1e6
-
-            log(f'[{code}] {host}{path}', Ansi.LGREEN)
-            log(f'Request took {time_taken:.2f}ms', Ansi.LBLUE)
-            await conn.send(code, resp)
         else:
-            log(f'[???] {host}{path}.', Ansi.LYELLOW)
-            await conn.send(404, b'Not Found.')
+            code, resp = (404, b'Not Found.')
+
+        await conn.send(code, resp)
+        return code
 
     def run(self, addr: Address) -> None:
         is_inet = type(addr) is tuple and len(addr) == 2 and \
@@ -590,10 +580,38 @@ class Server:
 
                 log(f'{self.name} listening @ {addr}', AnsiRGB(0x00ff7f))
 
+                async def handle(client: socket.socket) -> None:
+                    """Handle a single client socket from the server."""
+                    start_time = time.time_ns()
+
+                    # Read & parse connection.
+                    await (conn := Connection(client)).read()
+
+                    if 'Host' not in conn.headers:
+                        # This should never happen?
+                        client.shutdown(socket.SHUT_RDWR)
+                        client.close()
+                        return
+
+                    # Dispatch the handler.
+                    code = await self.dispatch(conn)
+
+                    # Event complete, stop timing, log result and cleanup.
+                    time_taken = (time.time_ns() - start_time) / 1e6
+
+                    colour = Ansi.LGREEN if code != 404 else Ansi.LYELLOW
+                    uri = f'{conn.headers["Host"]}{conn.path}'
+
+                    log(f'[{conn.cmd}] {code} {uri}', colour)
+
+                    if self.verbose:
+                        log(f'Request took {time_taken:.2f}ms', Ansi.LBLUE)
+
+                    client.shutdown(socket.SHUT_RDWR)
+                    client.close()
+
                 while True:
                     client, _ = await loop.sock_accept(sock)
-                    conn = Connection(client)
-                    await conn.read()
-                    loop.create_task(self.dispatch(conn))
+                    loop.create_task(handle(client))
 
         asyncio.run(runner())
