@@ -15,7 +15,6 @@ import os
 import re
 import time
 import gzip
-from collections import defaultdict
 from enum import IntEnum, unique
 from typing import Callable, Coroutine, Optional, Union
 
@@ -216,19 +215,19 @@ class Connection:
         self.client = client
 
         # Request params
-        self.headers = defaultdict(None)
+        self.headers = {}
         self.body: Optional[bytearray] = None
         self.cmd = ''
         self.path = ''
         self.httpver = 0.0
 
-        self.args = defaultdict(None)
-        self.multipart_args = defaultdict(None)
+        self.args = {}
+        self.multipart_args = {}
 
-        self.files = defaultdict(None)
+        self.files = {}
 
         # Response params
-        self.resp_code: int = 200
+        self.resp_code = 200
         self.resp_headers: list[str] = []
 
     """ Request methods """
@@ -266,7 +265,7 @@ class Connection:
                 param = param_line.split('=', 1)
 
                 if len(param) != 2: # Only key received.
-                    log(f'Invalid url path argument', Ansi.RED)
+                    log(f'Invalid url path argument', Ansi.LRED)
                     return
 
                 self.args.update({param[0]: param[1]})
@@ -599,7 +598,11 @@ class Server:
                     # Event complete, stop timing, log result and cleanup.
                     time_taken = (time.time_ns() - start_time) / 1e6
 
-                    colour = Ansi.LGREEN if code != 404 else Ansi.LYELLOW
+                    colour = (Ansi.LGREEN if 200 <= code < 300 else
+                              Ansi.LYELLOW if 300 <= code < 400 else
+                              Ansi.LRED)
+
+                    #colour = Ansi.LGREEN if code != 404 else Ansi.LYELLOW
                     uri = f'{conn.headers["Host"]}{conn.path}'
 
                     log(f'[{conn.cmd}] {code} {uri}', colour)
