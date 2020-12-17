@@ -602,7 +602,6 @@ class Server:
                               Ansi.LYELLOW if 300 <= code < 400 else
                               Ansi.LRED)
 
-                    #colour = Ansi.LGREEN if code != 404 else Ansi.LYELLOW
                     uri = f'{conn.headers["Host"]}{conn.path}'
 
                     log(f'[{conn.cmd}] {code} {uri}', colour)

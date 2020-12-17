@@ -5,10 +5,10 @@ with open('README.md', 'r') as f:
 
 setuptools.setup(
     name = 'cmyui',
-    version = '1.5.2',
+    version = '1.5.3',
     author = 'cmyui',
     author_email = 'cmyuiosu@gmail.com',
-    description = 'Generic classes I find myself rewriting over and over again.',
+    description = 'Some generic tools I find myself using often (web, mysql/pg, logging, utils, etc).',
     long_description = long_description,
     long_description_content_type = 'text/markdown',
     url = 'https://github.com/cmyui/cmyui_pkg',
