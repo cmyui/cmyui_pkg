@@ -467,7 +467,8 @@ class Domain(RouteMap):
 class Server:
     """An asynchronous multi-domain server."""
     __slots__ = ('name', 'max_conns', 'gzip',
-                 'verbose', 'domains', 'tasks')
+                 'verbose', 'domains', 'tasks',
+                 'sock_family')
     def __init__(self, **kwargs) -> None:
         self.name = kwargs.pop('name', 'Server')
         self.max_conns = kwargs.pop('max_conns', 5)
@@ -476,6 +477,19 @@ class Server:
 
         self.domains = set()
         self.tasks = set()
+
+        self.sock_family: socket.AddressFamily
+
+    def set_sock_mode(self, addr: Address) -> None:
+        is_inet = type(addr) is tuple and len(addr) == 2 and \
+                  type(addr[0]) is str and type(addr[1]) is int
+
+        if is_inet:
+            self.sock_family = socket.AF_INET
+        elif isinstance(addr, str):
+            self.sock_family = socket.AF_UNIX
+        else:
+            raise ValueError('Invalid address.')
 
     # Domain management
 
@@ -535,20 +549,43 @@ class Server:
         await conn.send(code, resp)
         return code
 
+    async def handle(self, client: socket.socket) -> None:
+        """Handle a single client socket from the server."""
+        start_time = time.time_ns()
+
+        # Read & parse connection.
+        await (conn := Connection(client)).read()
+
+        if 'Host' not in conn.headers:
+            # This should never happen?
+            client.shutdown(socket.SHUT_RDWR)
+            client.close()
+            return
+
+        # Dispatch the handler.
+        code = await self.dispatch(conn)
+
+        # Event complete, stop timing, log result and cleanup.
+        time_taken = (time.time_ns() - start_time) / 1e6
+
+        colour = (Ansi.LGREEN if 200 <= code < 300 else
+                    Ansi.LYELLOW if 300 <= code < 400 else
+                    Ansi.LRED)
+
+        uri = f'{conn.headers["Host"]}{conn.path}'
+
+        log(f'[{conn.cmd}] {code} {uri}', colour)
+
+        if self.verbose:
+            log(f'Request took {time_taken:.2f}ms', Ansi.LBLUE)
+
+        client.shutdown(socket.SHUT_RDWR)
+        client.close()
+
     def run(self, addr: Address) -> None:
-        is_inet = type(addr) is tuple and len(addr) == 2 and \
-                  type(addr[0]) is str and type(addr[1]) is int
-
-        if is_inet:
-            sock_family = socket.AF_INET
-            using_unix = False
-        elif isinstance(addr, str):
-            sock_family = socket.AF_UNIX
-            using_unix = True
-        else:
-            raise ValueError('Invalid address.')
-
         """Run the server indefinitely."""
+        self.set_sock_mode(addr)
+
         async def runner() -> None:
             loop = asyncio.get_event_loop()
 
@@ -564,14 +601,14 @@ class Server:
 
             # Setup socket & begin listening
 
-            if using_unix:
+            if self.sock_family == socket.AF_UNIX:
                 if os.path.exists(addr):
                     os.remove(addr)
 
-            with socket.socket(sock_family) as sock:
+            with socket.socket(self.sock_family) as sock:
                 sock.bind(addr)
 
-                if using_unix:
+                if self.sock_family == socket.AF_UNIX:
                     os.chmod(addr, 0o777)
 
                 sock.listen(self.max_conns)
@@ -579,41 +616,8 @@ class Server:
 
                 log(f'{self.name} listening @ {addr}', AnsiRGB(0x00ff7f))
 
-                async def handle(client: socket.socket) -> None:
-                    """Handle a single client socket from the server."""
-                    start_time = time.time_ns()
-
-                    # Read & parse connection.
-                    await (conn := Connection(client)).read()
-
-                    if 'Host' not in conn.headers:
-                        # This should never happen?
-                        client.shutdown(socket.SHUT_RDWR)
-                        client.close()
-                        return
-
-                    # Dispatch the handler.
-                    code = await self.dispatch(conn)
-
-                    # Event complete, stop timing, log result and cleanup.
-                    time_taken = (time.time_ns() - start_time) / 1e6
-
-                    colour = (Ansi.LGREEN if 200 <= code < 300 else
-                              Ansi.LYELLOW if 300 <= code < 400 else
-                              Ansi.LRED)
-
-                    uri = f'{conn.headers["Host"]}{conn.path}'
-
-                    log(f'[{conn.cmd}] {code} {uri}', colour)
-
-                    if self.verbose:
-                        log(f'Request took {time_taken:.2f}ms', Ansi.LBLUE)
-
-                    client.shutdown(socket.SHUT_RDWR)
-                    client.close()
-
                 while True:
                     client, _ = await loop.sock_accept(sock)
-                    loop.create_task(handle(client))
+                    loop.create_task(self.handle(client))
 
         asyncio.run(runner())
