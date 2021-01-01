@@ -8,7 +8,7 @@ from enum import IntFlag, unique
 from typing import Optional
 
 from cmyui import utils
-from cmyui.osu import Mods
+from cmyui.osu.mods import Mods
 
 __all__ = ('Keys', 'ReplayFrame', 'Replay')
 
