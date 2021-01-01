@@ -8,6 +8,7 @@ from enum import IntFlag, unique
 from typing import Optional
 
 from cmyui import utils
+from cmyui.osu import Mods
 
 __all__ = ('Keys', 'ReplayFrame', 'Replay')
 
@@ -110,7 +111,7 @@ class Replay:
         self.score: Optional[int] = None
         self.max_combo: Optional[int] = None
         self.perfect: Optional[int] = None
-        self.mods: Optional[int] = None
+        self.mods: Optional[Mods] = None
 
         """ additional info"""
         self.life_graph: Optional[list[tuple[int, float]]] = None # zz
@@ -131,7 +132,7 @@ class Replay:
         return self._data[self._offset:]
 
     @classmethod
-    def from_file(cls, filename: str):
+    def from_file(cls, filename: str) -> 'Replay':
         if not os.path.exists(filename):
             return
 
@@ -160,7 +161,7 @@ class Replay:
         self.score = self._read_int()
         self.max_combo = self._read_short()
         self.perfect = self._read_byte()
-        self.mods = self._read_int()
+        self.mods = Mods(self._read_int())
         self.life_graph = self._read_string() # TODO
         self.timestamp = self._read_long()
 
@@ -170,7 +171,7 @@ class Replay:
         """ parse additional info """
         self.score_id = self._read_long()
 
-        if self.mods & 1 << 23: # target practice
+        if self.mods & Mods.TARGET:
             self.mod_extras = self._read_double()
 
     def _read_byte(self):

@@ -501,7 +501,7 @@ class Beatmap:
         return self._data[self._offset:]
 
     @classmethod
-    def from_file(cls, filename: str):
+    def from_file(cls, filename: str) -> 'Beatmap':
         if not os.path.exists(filename):
             return
 
