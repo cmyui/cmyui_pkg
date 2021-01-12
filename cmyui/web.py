@@ -207,7 +207,6 @@ class Connection:
 
         # Response params
         'resp_code', 'resp_headers',
-
     )
 
     # TODO: probably cut back on the defaultdicts
@@ -569,8 +568,8 @@ class Server:
         time_taken = (time.time_ns() - start_time) / 1e6
 
         colour = (Ansi.LGREEN if 200 <= code < 300 else
-                    Ansi.LYELLOW if 300 <= code < 400 else
-                    Ansi.LRED)
+                  Ansi.LYELLOW if 300 <= code < 400 else
+                  Ansi.LRED)
 
         uri = f'{conn.headers["Host"]}{conn.path}'
 
