@@ -428,7 +428,7 @@ class RouteMap:
     def route(self, path: Union[str, re.Pattern],
               methods: list[str] = ['GET']) -> Callable:
         """Add a possible route to the server."""
-        if type(path) not in (str, re.Pattern):
+        if not isinstance(path, (str, re.Pattern)):
             raise TypeError('Route path must be str or regex pattern.')
 
         def wrapper(f: Coroutine) -> Coroutine:
