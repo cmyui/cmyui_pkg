@@ -17,7 +17,7 @@ import re
 from pathlib import Path
 from cmyui import (Version, Server, Domain,
                    AsyncSQLPool, Connection,
-                   rstring)
+                   rstring, log, Ansi, AnsiRGB)
 
 version = Version(1, 0, 3)
 debug = True
@@ -70,8 +70,19 @@ async def ingame_screenshot(conn: Connection) -> Optional[bytes]:
     if not token in headers:
         return (401, b'Unauthorized')
 
-    with open(Path.cwd() / 'ss' / rstring(8), 'wb') as f:
+    p = players[token]
+    ss_file = Path.cwd() / 'ss' / rstring(8)
+
+    with open(ss_file, 'wb') as f:
         f.write(conn.files['ss'])
+
+    # ansi comes in two flavours, Ansi, an enum
+    # including the simple 8bit ansi colour codes;
+    # but also the AnsiRGB class, which can take
+    # either a tuple of 3 ints (r, g, b), or a
+    # single int (will split the bits into r/g/b).
+    log(f'{p!r} uploaded {ss_file}.', Ansi.LBLUE)
+    log(f'{p!r} uploaded {ss_file}.', AnsiRGB(0x77ffdd))
 
     return b'Uploaded'
 
