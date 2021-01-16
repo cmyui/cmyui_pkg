@@ -124,6 +124,8 @@ async def disconnect_inactive_players():
             if time.time() - p.last_recv_time > ping_timeout:
                 await p.logout()
 
+        await asyncio.sleep(ping_timeout)
+
 app.add_tasks({on_start(), disconnect_inactive_players()})
 
 # for the server socket type, both inet4 and unix
