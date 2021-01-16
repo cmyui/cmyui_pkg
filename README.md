@@ -2,84 +2,133 @@
 
 ## The good stuff
 
-- Asynchronous TCP server (parses ur headers and args and multipart and stuff)
-- (A)synchronous mysql wrapper (fetch(all), execute, iterall, more if anyone cares enough to ask?)
-- Fully 2020-november-1st-esque osu! beatmap and replay parsers with super hot context managers (osuapiv2 wrapper coming soon)
-- Really simple logging setup with ansi/rgb color support, probably going to get more control in future
-- Lots of misc utility functions and classes, mostly for my specific need but seemed pretty generic
-- More to come, again, if anyone cares enough to ask?
+- Async multi-domain http server & sql wrapper
+- Simple logging utilities, for printing in colour w/ timestamps.
+- osu! tools, such as replay and beatmap parsers, and more.
+- Simple discord webhook wrapper, likely going to grow into more.
 
 ```py
-""" AsyncTCPServer (relatively for the project you're probably taking on if you care about this example) basic example"""
+# Example of how to use some of the stuff.
 
+from typing import Optional
 import asyncio
-import cmyui
+import re
 
-async def handle_conn(conn: cmyui.AsyncConnection) -> None:
-    # see the AsyncConnection implementation for
-    # details on it's use and methods/attributes.
+from pathlib import Path
+from cmyui import (Version, Server, Domain,
+                   AsyncSQLPool, Connection,
+                   rstring)
 
-    # i've provided a simple server example below.
+version = Version(1, 0, 3)
+debug = True
 
-    if 'Host' not in conn.headers:
-        await conn.send(400, b'Missing required headers.')
-        return
+sql: Optional[AsyncSQLPool] = None
+players = [just imagine this is a list with
+           player objects on a game server]
 
-    if conn.cmd == 'GET':
-        if conn.path == '/math/sum.php':
-            if 'x' not in conn.args or 'y' not in conn.args:
-                await conn.send(400, b'Must supply x & y parameters.')
-                return
+# server has built-in gzip compression support,
+# simply pass the level you'd like to use (1-9).
+app = Server(name=f'Gameserver v{version}',
+             gzip=4, verbose=debug)
 
-            x = conn.args['x']
-            y = conn.args['y']
+# usually, domains are defined externally in
+# other files, generally in a 'domains' folder.
+domain1 = Domain('osu.ppy.sh')
+domain2 = Domain('cmyui.codes')
 
-            if not x.isdecimal() or not y.isdecimal():
-                await conn.send(400, b'Must supply integral parameters.')
-                return
+# domains can then have their routes defined
+# in similar syntax to many other popular web
+# frameworks. these domains can be defined
+# either with a plaintext url route, or using
+# regular expressions, allowing for much
+# greater complexity.
+@domain1.route('/ingame/getfriends.php')
+async def ingame_getfriends(conn: Connection) -> Optional[bytes]:
+    if 'token' not in conn.headers:
+        # returning a tuple of (int, bytes) allows
+        # for customization of the return code.
+        return (400, b'Bad Request')
 
-            await conn.send(200, f'Sum: {x + y}'.encode())
-            return
-        else:
-            await conn.send(404, b'Handler not found.')
-            return
-    elif conn.cmd == 'POST':
-        if conn.path.startswith('/ss/') and conn.path.endswith('.png'):
-            # POSTing with screenshot in multipart data as a file.
-            if 'screenshot' not in conn.files:
-                await conn.send(400, b'Missing screenshot data.')
-                return
+    token = conn.headers['token']
 
-            ss_id = conn.path[4:-4]
+    global players
+    if not token in headers:
+        return (401, b'Unauthorized')
 
-            if not ss_id.isdecimal():
-                await conn.send(400, b'Invalid screenshot id.')
-                return
+    # returning bytes alone will simply use 200.
+    return '\n'.join(players[token].friends).encode()
 
-            with open(f'ss/{ss_id}.png', 'wb') as f:
-                f.write(conn.files['screenshot'])
+# methods can be specified as a list in the route definition
+@domain1.route('/ingame/screenshot.php', methods=['POST'])
+async def ingame_screenshot(conn: Connection) -> Optional[bytes]:
+    if 'token' not in conn.headers or 'ss' not in conn.files:
+        return (400, b'Bad Request')
 
-            log(f'Saved screenshot {ss_id}.png', Ansi.LGREEN)
-            return
-        else:
-            await conn.send(404, b'Handler not found.')
-            return
-    else:
-        await conn.send(400, b'Handler not found.')
-        return
+    token = conn.headers['token']
 
-async def run_server():
-    loop = asyncio.get_event_loop()
+    global players
+    if not token in headers:
+        return (401, b'Unauthorized')
 
-    # support for both ipv4 and unix domain sockets
-    addr = ('127.0.0.1', 5001) # ipv4
-    addr = '/tmp/gulag.sock' # unix domain
+    with open(Path.cwd() / 'ss' / rstring(8), 'wb') as f:
+        f.write(conn.files['ss'])
 
-    async with cmyui.AsyncTCPServer(addr) as serv:
-        async for conn in serv.listen(max_conns=16):
-            loop.create_task(handle_conn(conn))
+    return b'Uploaded'
 
-asyncio.run(run_server())
+@domain2.route(re.compile('^/u/(?P<id>\d{1,10}$'))
+async def user_profile(conn: Connection) -> Optional[bytes]:
+    # idk how to do frontend lol, just imagine
+    # using that kind of regular expression
+    # syntax to define stuff like user profiles
+    # with ids like this.
+    ...
 
-"""More docs coming soon?™️"""
-```
+# finally, the domains themselves
+# can be added to the server object.
+app.add_domains({domain1, domain2})
+
+# and the server allows for any number
+# of async callables to be enqueued as
+# tasks once the server is started up.
+async def on_start():
+    # this should probably be
+    # in a config somewhere lol
+    sql_info = {
+        'db': 'cmyui',
+        'host': 'localhost',
+        'password': 'lol123',
+        'user': 'cmyui'
+    }
+
+    global sql
+    sql = AsyncSQLPool()
+    await sql.connect(sql_info)
+
+async def disconnect_inactive_players():
+    ping_timeout = 120
+    global players
+
+    while True:
+        for p in players:
+            if time.time() - p.last_recv_time > ping_timeout:
+                await p.logout()
+
+app.add_tasks({on_start(), disconnect_inactive_players()})
+
+# for the server socket type, both inet4 and unix
+# domains sockets are available, simply by altering
+# the type of the address you put in.
+server_addr = ('127.0.0.1', 5001)  # inet4
+server_addr = '/tmp/myserver.sock' # unix
+
+# then, the server can be run; this is a blocking
+# call after which the server will indefinitely
+# continue to listen for and handle connections.
+app.run(server_addr)
+
+# and voila, you have an async server. the server
+# will use uvloop if you have it installed; if you
+# don't know about the project, consider checking
+# out https://github.com/MagicStack/uvloop.
+
+# cheers B)

@@ -8,9 +8,11 @@
 # Perhaps at some point, it will be re-added,
 # though it doesn't sound too useful atm. :P
 
+import importlib
 import asyncio
 import socket
 import signal
+import sys
 import os
 import re
 import time
@@ -364,8 +366,7 @@ class Connection:
             # still be arguments passed as multipart/form-data.
 
             if 'Content-Type' in self.headers:
-                ct = self.headers['Content-Type']
-                if ct and ct.startswith('multipart/form-data'):
+                if self.headers['Content-Type'].startswith('multipart/form-data'):
                     await self.parse_multipart()
 
     """ Response methods """
@@ -612,6 +613,14 @@ class Server:
 
                 sock.listen(self.max_conns)
                 sock.setblocking(False)
+
+                # use uvloop if available (faster event loop).
+                if spec := importlib.util.find_spec('uvloop'):
+                    uvloop = importlib.util.module_from_spec(spec)
+                    sys.modules['uvloop'] = uvloop
+                    spec.loader.exec_module(uvloop)
+
+                    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
                 log(f'{self.name} listening @ {addr}', AnsiRGB(0x00ff7f))
 

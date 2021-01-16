@@ -4,54 +4,54 @@ import orjson
 import aiohttp
 from typing import Optional
 
-__all__ = ('EmbedFooter', 'EmbedImage', 'EmbedThumbnail',
-           'EmbedVideo', 'EmbedProvider', 'EmbedAuthor',
-           'EmbedField', 'Embed', 'Webhook')
+__all__ = ('Footer', 'Image', 'Thumbnail',
+           'Video', 'Provider', 'Author',
+           'Field', 'Embed', 'Webhook')
 
-class EmbedFooter:
+class Footer:
     def __init__(self, text: str, **kwargs) -> None:
         self.text = text
-        self.icon_url = kwargs.pop('icon_url', '')
-        self.proxy_icon_url = kwargs.pop('proxy_icon_url', '')
+        self.icon_url = kwargs.get('icon_url')
+        self.proxy_icon_url = kwargs.get('proxy_icon_url')
 
-class EmbedImage:
+class Image:
     def __init__(self, **kwargs) -> None:
-        self.url = kwargs.pop('url', '')
-        self.proxy_url = kwargs.pop('proxy_url', '')
-        self.height = kwargs.pop('height', 0)
-        self.width = kwargs.pop('width', 0)
+        self.url = kwargs.get('url')
+        self.proxy_url = kwargs.get('proxy_url')
+        self.height = kwargs.get('height')
+        self.width = kwargs.get('width')
 
-class EmbedThumbnail:
+class Thumbnail:
     def __init__(self, **kwargs) -> None:
-        self.url = kwargs.pop('url', '')
-        self.proxy_url = kwargs.pop('proxy_url', '')
-        self.height = kwargs.pop('height', 0)
-        self.width = kwargs.pop('width', 0)
+        self.url = kwargs.get('url')
+        self.proxy_url = kwargs.get('proxy_url')
+        self.height = kwargs.get('height')
+        self.width = kwargs.get('width')
 
-class EmbedVideo:
+class Video:
     def __init__(self, **kwargs) -> None:
-        self.url = kwargs.pop('url', '')
-        self.height = kwargs.pop('height', 0)
-        self.width = kwargs.pop('width', 0)
+        self.url = kwargs.get('url')
+        self.height = kwargs.get('height')
+        self.width = kwargs.get('width')
 
-class EmbedProvider:
+class Provider:
     def __init__(self, **kwargs) -> None:
-        self.url = kwargs.pop('url', '')
-        self.name = kwargs.pop('name', '')
+        self.url = kwargs.get('url')
+        self.name = kwargs.get('name')
 
-class EmbedAuthor:
+class Author:
     def __init__(self, **kwargs) -> None:
-        self.name = kwargs.pop('name', '')
-        self.url = kwargs.pop('url', '')
-        self.icon_url = kwargs.pop('icon_url', '')
-        self.proxy_icon_url = kwargs.pop('proxy_icon_url', '')
+        self.name = kwargs.get('name')
+        self.url = kwargs.get('url')
+        self.icon_url = kwargs.get('icon_url')
+        self.proxy_icon_url = kwargs.get('proxy_icon_url')
 
-class EmbedField:
+class Field:
     def __init__(self, name: str, value: str,
-                 **kwargs) -> None:
+                 inline: bool = False) -> None:
         self.name = name
         self.value = value
-        self.inline = kwargs.pop('inline', False)
+        self.inline = inline
 
 class Embed:
     def __init__(self, **kwargs) -> None:
@@ -62,14 +62,36 @@ class Embed:
         self.timestamp = kwargs.get('timestamp') # datetime
         self.color = kwargs.get('color', 0x000000)
 
-        self.footer: Optional[EmbedFooter] = kwargs.get('footer')
-        self.image: Optional[EmbedImage] = kwargs.get('image')
-        self.thumbnail: Optional[EmbedThumbnail] = kwargs.get('thumbnail')
-        self.video: Optional[EmbedVideo] = kwargs.get('video')
-        self.provider: Optional[EmbedProvider] = kwargs.get('provider')
-        self.author: Optional[EmbedAuthor] = kwargs.get('author')
+        self.footer: Optional[Footer] = kwargs.get('footer')
+        self.image: Optional[Image] = kwargs.get('image')
+        self.thumbnail: Optional[Thumbnail] = kwargs.get('thumbnail')
+        self.video: Optional[Video] = kwargs.get('video')
+        self.provider: Optional[Provider] = kwargs.get('provider')
+        self.author: Optional[Author] = kwargs.get('author')
 
-        self.fields: list[EmbedField] = []
+        self.fields: list[Field] = kwargs.get('fields', [])
+
+    def set_footer(self, **kwargs) -> None:
+        self.footer = Footer(**kwargs)
+
+    def set_image(self, **kwargs) -> None:
+        self.image = Image(**kwargs)
+
+    def set_thumbnail(self, **kwargs) -> None:
+        self.thumbnail = Thumbnail(**kwargs)
+
+    def set_video(self, **kwargs) -> None:
+        self.video = Video(**kwargs)
+
+    def set_provider(self, **kwargs) -> None:
+        self.provider = Provider(**kwargs)
+
+    def set_author(self, **kwargs) -> None:
+        self.author = Author(**kwargs)
+
+    def add_field(self, name: str, value: str,
+                  inline: bool = False) -> None:
+        self.fields.append(Field(name, value, inline))
 
 class Webhook:
     """A class to represent a single-use Discord webhook."""
@@ -126,11 +148,12 @@ class Webhook:
 
         return orjson.dumps(payload).decode()
 
-    # TODO: add multipart support so we can upload files.
     async def post(self, http: Optional[aiohttp.ClientSession] = None) -> None:
         """Post the webhook in JSON format."""
         _http = http or aiohttp.ClientSession(json_serialize=orjson.dumps)
 
+        # TODO: if `self.file is not None`, then we should
+        #       use multipart/form-data instead of json payload.
         headers = {'Content-Type': 'application/json'}
         async with _http.post(self.url, data=self.json,
                               headers=headers) as resp:

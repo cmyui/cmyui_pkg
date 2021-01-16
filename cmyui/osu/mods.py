@@ -91,3 +91,75 @@ class Mods(IntFlag):
                                     and _m != Mods.SPEED_CHANGING):
             mod_str.append(mod_dict[m])
         return ''.join(mod_str)
+
+    @staticmethod
+    def filter_invalid_combos(m: 'Mods') -> 'Mods':
+        """Remove any invalid mod combinations from and return `m`."""
+        if m & (Mods.DOUBLETIME | Mods.NIGHTCORE) and m & Mods.HALFTIME:
+            m &= ~Mods.HALFTIME
+        if m & Mods.EASY and m & Mods.HARDROCK:
+            m &= ~Mods.HARDROCK
+        if m & Mods.RELAX and m & Mods.AUTOPILOT:
+            m &= ~Mods.AUTOPILOT
+        if m & Mods.PERFECT and m & Mods.SUDDENDEATH:
+            m &= ~Mods.SUDDENDEATH
+
+        return m
+
+    @classmethod
+    def from_str(cls, s: str):
+        # from fmt: `HDDTRX`
+        # TODO: check for invalid mod combos
+        mod_dict = {
+            'EZ': cls.EASY,
+            'NF': cls.NOFAIL,
+            'HD': cls.HIDDEN,
+            'PF': cls.PERFECT,
+            'SD': cls.SUDDENDEATH,
+            'HR': cls.HARDROCK,
+            'NC': cls.NIGHTCORE,
+            'DT': cls.DOUBLETIME,
+            'HT': cls.HALFTIME,
+            'FL': cls.FLASHLIGHT,
+            'SO': cls.SPUNOUT,
+            'RX': cls.RELAX,
+            'AP': cls.AUTOPILOT
+        }
+
+        mods = cls.NOMOD
+
+        for m in map(lambda i: s[i:i+2].upper(), range(0, len(s), 2)):
+            if m not in mod_dict:
+                continue
+
+            mods |= mod_dict[m]
+
+        return cls.filter_invalid_combos(mods)
+
+    @classmethod
+    def from_np(cls, s: str):
+        # TODO: check for invalid mod combos
+        # from fmt: `-DiffDown +DiffUp ~Special~`
+        mod_dict = {
+            '-Easy': cls.EASY,
+            '-NoFail': cls.NOFAIL,
+            '+Hidden': cls.HIDDEN,
+            '+Perfect': cls.PERFECT,
+            '+SuddenDeath': cls.SUDDENDEATH,
+            '+HardRock': cls.HARDROCK,
+            '+Nightcore': cls.NIGHTCORE,
+            '+DoubleTime': cls.DOUBLETIME,
+            '-HalfTime': cls.HALFTIME,
+            '+Flashlight': cls.FLASHLIGHT,
+            '-SpunOut': cls.SPUNOUT,
+            '~Relax~': cls.RELAX,
+            '~Autopilot~': cls.AUTOPILOT
+        }
+
+        mods = cls.NOMOD
+
+        for mod in s.split(' '):
+            # a bit unsafe.. perhaps defaultdict?
+            mods |= mod_dict[mod]
+
+        return cls.filter_invalid_combos(mods)
