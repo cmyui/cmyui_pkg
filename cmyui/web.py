@@ -459,7 +459,7 @@ class Domain(RouteMap):
         else:
             raise TypeError('Key should be str or re.Pattern object.')
 
-    def add_map(rmap: RouteMap) -> None:
+    def add_map(self, rmap: RouteMap) -> None:
         self.routes |= rmap.routes
 
 # TODO: perhaps implement Server, or refactor
@@ -470,10 +470,10 @@ class Server:
                  'verbose', 'domains', 'tasks',
                  'sock_family')
     def __init__(self, **kwargs) -> None:
-        self.name = kwargs.pop('name', 'Server')
-        self.max_conns = kwargs.pop('max_conns', 5)
-        self.gzip = kwargs.pop('gzip', 0) # 0-9 valid levels
-        self.verbose = kwargs.pop('verbose', False)
+        self.name = kwargs.get('name', 'Server')
+        self.max_conns = kwargs.get('max_conns', 5)
+        self.gzip = kwargs.get('gzip', 0) # 0-9 valid levels
+        self.verbose = kwargs.get('verbose', False)
 
         self.domains = set()
         self.tasks = set()
@@ -614,6 +614,7 @@ class Server:
                 sock.listen(self.max_conns)
                 sock.setblocking(False)
 
+                """
                 # use uvloop if available (faster event loop).
                 if spec := importlib.util.find_spec('uvloop'):
                     uvloop = importlib.util.module_from_spec(spec)
@@ -621,6 +622,7 @@ class Server:
                     spec.loader.exec_module(uvloop)
 
                     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+                """
 
                 log(f'{self.name} listening @ {addr}', AnsiRGB(0x00ff7f))
 

@@ -166,17 +166,17 @@ class HitSound(IntFlag):
 
 class HitObject:
     def __init__(self, **kwargs) -> None:
-        self.x: Optional[int] = kwargs.pop('x', None)
-        self.y: Optional[int] = kwargs.pop('y', None)
-        self.time: Optional[int] = kwargs.pop('time', None)
+        self.x: Optional[int] = kwargs.get('x')
+        self.y: Optional[int] = kwargs.get('y')
+        self.time: Optional[int] = kwargs.get('time')
 
         # very closely related
         # XXX: i could actually refactor these to
         # be in a single class (and may), but i think
         # it might confuse people who are reading osu!'s
         # implementation to make sense of it? idk man lol
-        self.hit_sound: Optional[HitSound] = kwargs.pop('hit_sound', None)
-        self.hit_sample: Optional[HitSample] = kwargs.pop('hit_sample', None)
+        self.hit_sound: Optional[HitSound] = kwargs.get('hit_sound')
+        self.hit_sample: Optional[HitSample] = kwargs.get('hit_sample')
 
     @classmethod
     def from_str(_, s: str):
@@ -243,12 +243,12 @@ class Slider(HitObject):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self.curve_type: Optional[CurveType] = kwargs.pop('curve_type', None)
-        self.curve_points: Optional[list[str]] = kwargs.pop('curve_points', None)
-        self.slides: Optional[int] = kwargs.pop('slides', None)
-        self.length: Optional[float] = kwargs.pop('length', None)
-        self.edge_sounds: list[int] = kwargs.pop('edge_sounds', None)
-        self.edge_sets: Optional[list[list[int, int]]] = kwargs.pop('edge_sets', None)
+        self.curve_type: Optional[CurveType] = kwargs.get('curve_type')
+        self.curve_points: Optional[list[str]] = kwargs.get('curve_points')
+        self.slides: Optional[int] = kwargs.get('slides')
+        self.length: Optional[float] = kwargs.get('length')
+        self.edge_sounds: list[int] = kwargs.get('edge_sounds')
+        self.edge_sets: Optional[list[list[int, int]]] = kwargs.get('edge_sets')
 
     @classmethod
     def from_str(cls, s, **kwargs):
@@ -282,7 +282,7 @@ class Spinner(HitObject):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self.end_time: Optional[int] = kwargs.pop('end_time', None)
+        self.end_time: Optional[int] = kwargs.get('end_time')
 
     @classmethod
     def from_str(cls, s, **kwargs):
@@ -303,7 +303,7 @@ class ManiaHold(HitObject):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
 
-        self.end_time: Optional[int] = kwargs.get('end_time', None)
+        self.end_time: Optional[int] = kwargs.get('end_time')
 
         # `self.x` determines the column the hold will be in;
         # it can be determined with floor(x * columnCount / 512)
