@@ -67,7 +67,7 @@ class AsyncSQLPool:
         self.pool: Optional[aiomysql.Pool] = None
 
     async def connect(self, config):
-        self.pool = await aiomysql.create_pool(**config)
+        self.pool = await aiomysql.create_pool(**config, autocommit=True)
 
     async def close(self) -> None:
         self.pool.close()
