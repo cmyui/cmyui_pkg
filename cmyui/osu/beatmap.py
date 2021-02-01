@@ -556,10 +556,10 @@ class Beatmap:
         offs = self.data.find(to_find)
 
         if offs == -1:
-            # failed to find section?
-            # this should never happen
-            # under normal circumstances
-            raise Exception(f'Failed to find section {name}!')
+            # skip any sections not found - the beatmap
+            # object will simply have `None` attributes
+            # if not parsed from the file.
+            return
 
         self._offset += offs + len(to_find)
         parse_func()

@@ -579,8 +579,11 @@ class Server:
         if self.verbose:
             log(f'Request took {time_taken:.2f}ms', Ansi.LBLUE)
 
-        client.shutdown(socket.SHUT_RDWR)
-        client.close()
+        try:
+            client.shutdown(socket.SHUT_RDWR)
+            client.close()
+        except socket.error:
+            pass
 
     def run(self, addr: Address) -> None:
         """Run the server indefinitely."""
@@ -630,4 +633,20 @@ class Server:
                     client, _ = await loop.sock_accept(sock)
                     loop.create_task(self.handle(client))
 
-        asyncio.run(runner())
+        if spec := importlib.util.find_spec('uvloop'):
+            uvloop = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(uvloop)
+
+            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
+        loop = asyncio.new_event_loop()
+
+        try:
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(runner())
+        finally:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+            # https://github.com/MagicStack/uvloop/pull/353
+            # loop.run_until_complete(loop.shutdown_default_executor())
+            asyncio.set_event_loop(None)
+            loop.close()
