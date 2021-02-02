@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__all__ = 'Version',
+__all__ = ('Version',)
 
 class Version: # TODO: why fixed length? also could maybe inherit comp ops
     __slots__ = ('major', 'minor', 'micro')

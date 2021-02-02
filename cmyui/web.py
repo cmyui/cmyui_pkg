@@ -12,15 +12,21 @@ import importlib
 import asyncio
 import socket
 import signal
-import sys
 import os
 import re
 import time
 import gzip
-from enum import IntEnum, unique
-from typing import Callable, Coroutine, Iterable, Optional, Union
+from enum import IntEnum
+from enum import unique
+from typing import Callable
+from typing import Coroutine
+from typing import Iterable
+from typing import Optional
+from typing import Union
 
-from .logging import log, Ansi, AnsiRGB
+from .logging import log
+from .logging import Ansi
+from .logging import AnsiRGB
 
 __all__ = (
     # Informational
