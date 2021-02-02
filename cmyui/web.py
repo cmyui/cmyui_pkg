@@ -18,7 +18,7 @@ import re
 import time
 import gzip
 from enum import IntEnum, unique
-from typing import Callable, Coroutine, Optional, Union
+from typing import Callable, Coroutine, Iterable, Optional, Union
 
 from .logging import log, Ansi, AnsiRGB
 
@@ -401,24 +401,22 @@ class Connection:
 
 class Route:
     """A single endpoint within of domain."""
-    __slots__ = ('key', 'methods', 'handler')
-    def __init__(self, key: Union[str, re.Pattern],
+    __slots__ = ('methods', 'handler', 'cond')
+    def __init__(self, key: Union[str, Iterable, re.Pattern],
                  methods: list[str], handler: Callable) -> None:
-        self.key = key
         self.methods = methods
         self.handler = handler
 
-    def matches(self, key: Union[str, re.Pattern], method: str) -> bool:
-        # Check if a given `key` matches our internal `self.key`.
-        if method not in self.methods:
-            return False
+        if isinstance(key, str):
+            self.cond = lambda k: k == key
+        elif isinstance(key, Iterable):
+            self.cond = lambda k: k in key
+        elif isinstance(key, re.Pattern):
+            self.cond = lambda k: key.match(k)
 
-        if isinstance(self.key, str):
-            return self.key == key
-        elif isinstance(self.key, re.Pattern):
-            return self.key.match(key)
-        else:
-            raise TypeError('Key should be str or re.Pattern object.')
+    def matches(self, key: str, method: str) -> bool:
+        """Check if a given `key` matches our method & condition."""
+        return method in self.methods and self.cond(key)
 
 class RouteMap:
     """A collection of endpoints of a domain."""
@@ -426,15 +424,16 @@ class RouteMap:
     def __init__(self) -> None:
         self.routes = set() # {Route(), ...}
 
-    def route(self, path: Union[str, re.Pattern],
+    def route(self, path: Union[str, Iterable[str], re.Pattern],
               methods: list[str] = ['GET']) -> Callable:
         """Add a possible route to the server."""
-        if not isinstance(path, (str, re.Pattern)):
-            raise TypeError('Route path must be str or regex pattern.')
+        if not isinstance(path, (str, Iterable, re.Pattern)):
+            raise TypeError('Route should be str | Iterable[str] | re.Pattern')
 
         def wrapper(f: Coroutine) -> Coroutine:
             self.routes.add(Route(path, methods, f))
             return f
+
         return wrapper
 
     def find_route(self, path: str, method: str):
@@ -445,19 +444,22 @@ class RouteMap:
 class Domain(RouteMap):
     """The main routemap, with a hostname.
        Allows for merging of additional routemaps."""
-    __slots__ = ('hostname',)
-    def __init__(self, hostname: Union[str, re.Pattern]) -> None:
+    __slots__ = ('cond',)
+    def __init__(self, hostname: Union[str, Iterable[str], re.Pattern]) -> None:
         super().__init__()
-        self.hostname = hostname
 
-    def matches(self, hostname: Union[str, re.Pattern]) -> bool:
-        # Check if a given `hostname` matches stored value.
-        if isinstance(self.hostname, str):
-            return self.hostname == hostname
-        elif isinstance(self.hostname, re.Pattern):
-            return self.hostname.match(hostname)
+        if isinstance(hostname, str):
+            self.cond = lambda hn: hn == hostname
+        elif isinstance(hostname, Iterable):
+            self.cond = lambda hn: hn in hostname
+        elif isinstance(hostname, re.Pattern):
+            self.cond = lambda hn: hostname.match(hn) is not None
         else:
-            raise TypeError('Key should be str or re.Pattern object.')
+            raise TypeError('Key should be str | Iterable[str] | re.Pattern')
+
+    def matches(self, hostname: str) -> bool:
+        """Check if a hostname matches our condition."""
+        return self.cond(hostname)
 
     def add_map(self, rmap: RouteMap) -> None:
         self.routes |= rmap.routes
@@ -616,16 +618,6 @@ class Server:
 
                 sock.listen(self.max_conns)
                 sock.setblocking(False)
-
-                """
-                # use uvloop if available (faster event loop).
-                if spec := importlib.util.find_spec('uvloop'):
-                    uvloop = importlib.util.module_from_spec(spec)
-                    sys.modules['uvloop'] = uvloop
-                    spec.loader.exec_module(uvloop)
-
-                    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-                """
 
                 log(f'{self.name} listening @ {addr}', AnsiRGB(0x00ff7f))
 
