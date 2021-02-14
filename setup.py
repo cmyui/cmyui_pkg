@@ -1,25 +1,32 @@
 import setuptools
+import re
+
+with open('requirements.txt', 'r') as f:
+    requirements = f.read().splitlines()
+
+with open('cmyui/__init__.py', 'r') as f:
+    version = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]', f.read(), re.MULTILINE).group(1)
 
 with open('README.md', 'r') as f:
     long_description = f.read()
 
 setuptools.setup(
     name = 'cmyui',
-    version = '1.5.12',
     author = 'cmyui',
-    author_email = 'cmyuiosu@gmail.com',
-    description = 'Some generic tools I find myself using often (web, mysql/pg, logging, utils, etc).',
+    url = 'https://github.com/cmyui/cmyui_pkg',
+    version = version,
+    packages = setuptools.find_packages(),
+    description = 'Tools I find myself constantly rebuilding and reusing.',
     long_description = long_description,
     long_description_content_type = 'text/markdown',
-    url = 'https://github.com/cmyui/cmyui_pkg',
-    packages = setuptools.find_packages(),
-    classifiers = [
-        'Programming Language :: Python :: 3',
-        'License :: OSI Approved :: MIT License',
-        'Operating System :: OS Independent',
-    ],
+    license = 'MIT',
+    install_requires = requirements,
     python_requires = '>=3.9',
     package_data = {
         'cmyui': ['py.typed'],
-    }
+    },
+    classifiers = [
+        'Programming Language :: Python :: 3.9',
+        'License :: OSI Approved :: MIT License',
+    ]
 )

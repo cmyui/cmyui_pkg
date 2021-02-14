@@ -62,31 +62,33 @@ Ansi_T = Union[Ansi, AnsiRGB]
 
 stdout_write = sys.stdout.write
 stdout_flush = sys.stdout.flush
+_gray = repr(Ansi.GRAY)
+_reset = repr(Ansi.RESET)
 
-def printc(s: str, col: Ansi_T) -> None:
+def printc(s: str, col: Ansi_T, endl: str = '\n') -> None:
     """Print a string, in a specified ansi colour."""
-    stdout_write(f'{col!r}{s}{Ansi.RESET!r}\n')
+    stdout_write(f'{col!r}{s}{Ansi.RESET!r}{endl}')
     stdout_flush()
 
-def log(msg: str, col: Optional[Ansi_T] = None, fd: str = None) -> None:
+def log(msg: str, col: Optional[Ansi_T] = None,
+        fd: str = None, endl: str = '\n') -> None:
     """\
     Print a string, in a specified ansi colour with timestamp.
 
     Allows for the functionality to write to a file as
     well by passing the filepath with the `fd` parameter.
     """
-    stdout_write('{gray!r}[{ts}] {col!r}{msg}{reset!r}\n'.format(
-        gray = Ansi.GRAY,
-        ts = get_timestamp(full=False),
-        col = col or Ansi.RESET,
-        msg = msg,
-        reset = Ansi.RESET
-    ))
+
+    ts_short = get_timestamp(full=False)
+
+    if col:
+        stdout_write(f'{_gray}[{ts_short}] {col!r}{msg}{_reset}{endl}')
+    else:
+        stdout_write(f'[{ts_short}] {msg}{endl}')
 
     stdout_flush()
 
-    if not fd:
-        return
-
-    with open(fd, 'a+') as f:
-        f.write(f'[{get_timestamp(full=True)}] {msg}\n')
+    if fd:
+        # log simple ascii output to fd.
+        with open(fd, 'a+') as f:
+            f.write(f'[{get_timestamp(full=True)}] {msg}\n')

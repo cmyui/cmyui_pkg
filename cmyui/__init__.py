@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 """\
-Some generic tools I find myself using often (web, mysql/pg, logging, utils, etc).
+Tools I find myself constantly rebuilding and reusing.
 
 I enjoy writing things myself from a relatively low level, so while some of
 these classes are simply inferior to using a 'real' lightweight framework, I
@@ -18,7 +18,7 @@ __title__ = 'cmyui'
 __author__ = 'cmyui'
 __license__ = 'MIT'
 __copyright__ = 'Copyright 2020 cmyui'
-__version__ = '1.5.12'
+__version__ = '1.6.0'
 
 from .logging import *
 from .mysql import *
