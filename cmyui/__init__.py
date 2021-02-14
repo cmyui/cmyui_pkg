@@ -18,7 +18,7 @@ __title__ = 'cmyui'
 __author__ = 'cmyui'
 __license__ = 'MIT'
 __copyright__ = 'Copyright 2020 cmyui'
-__version__ = '1.6.0'
+__version__ = '1.6.1'
 
 from .logging import *
 from .mysql import *

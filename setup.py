@@ -1,8 +1,8 @@
 import setuptools
 import re
 
-with open('requirements.txt', 'r') as f:
-    requirements = f.read().splitlines()
+#with open('requirements.txt', 'r') as f:
+#    requirements = f.read().splitlines()
 
 with open('cmyui/__init__.py', 'r') as f:
     version = re.search(r'^__version__\s*=\s*[\'"]([^\'"]*)[\'"]', f.read(), re.MULTILINE).group(1)
@@ -20,7 +20,7 @@ setuptools.setup(
     long_description = long_description,
     long_description_content_type = 'text/markdown',
     license = 'MIT',
-    install_requires = requirements,
+    install_requires = [],#requirements,
     python_requires = '>=3.9',
     package_data = {
         'cmyui': ['py.typed'],
