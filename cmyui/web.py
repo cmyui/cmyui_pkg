@@ -8,17 +8,21 @@
 # Perhaps at some point, it will be re-added,
 # though it doesn't sound too useful atm. :P
 
-import importlib
 import asyncio
-import socket
-import signal
+import gzip
+import importlib
+import inspect
 import os
 import re
+import signal
+import socket
 import time
-import gzip
 from enum import IntEnum
 from enum import unique
-from typing import Callable, Optional
+from functools import wraps
+from time import perf_counter as clock
+from typing import Any
+from typing import Callable
 from typing import Coroutine
 from typing import Iterable
 from typing import Optional
@@ -34,6 +38,7 @@ __all__ = (
     'Address',
 
     # Functional
+    'ratelimit',
     'Connection',
     'RouteMap',
     'Domain',
@@ -192,6 +197,59 @@ class HTTPStatus(IntEnum):
 
     def __repr__(self) -> str:
         return f'{self.value} {_httpstatus_str[self.value]}'
+
+def ratelimit(period: int, max_count: int,
+              default_return: Optional[Any] = None
+             ) -> Callable:
+    """Utility decorator for global ratelimiting."""
+    period = period
+    max_count = max_count
+    default_return = default_return
+
+    last_reset = 0
+    num_calls = 0
+
+    def decorate(f: Callable) -> Callable:
+        # TODO: not an extra 18 lines for 6 char change
+        if inspect.iscoroutinefunction(f):
+            async def wrapper(*args, **kwargs) -> Optional[Any]:
+                nonlocal period, max_count, last_reset, num_calls
+
+                elapsed = clock() - last_reset
+                period_remaining = period - elapsed
+
+                if period_remaining <= 0:
+                    num_calls = 0
+                    last_reset = clock()
+
+                num_calls += 1
+
+                if num_calls > max_count:
+                    # call ratelimited.
+                    return default_return
+
+                return await f(*args, **kwargs)
+        else:
+            def wrapper(*args, **kwargs) -> Optional[Any]:
+                nonlocal period, max_count, last_reset, num_calls
+
+                elapsed = clock() - last_reset
+                period_remaining = period - elapsed
+
+                if period_remaining <= 0:
+                    num_calls = 0
+                    last_reset = clock()
+
+                num_calls += 1
+
+                if num_calls > max_count:
+                    # call ratelimited.
+                    return default_return
+
+                return f(*args, **kwargs)
+
+        return wraps(f)(wrapper)
+    return decorate
 
 # Will be (host: str, port: int) if INET,
 # or (sock_dir: str) if UNIX.
