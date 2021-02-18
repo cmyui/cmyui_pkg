@@ -18,7 +18,7 @@ import time
 import gzip
 from enum import IntEnum
 from enum import unique
-from typing import Callable
+from typing import Callable, Optional
 from typing import Coroutine
 from typing import Iterable
 from typing import Optional
@@ -474,19 +474,24 @@ class Domain(RouteMap):
 # both into one with a kwarg for async? moyai
 class Server:
     """An asynchronous multi-domain server."""
-    __slots__ = ('name', 'max_conns', 'gzip',
-                 'verbose', 'domains', 'tasks',
-                 'sock_family')
+    __slots__ = (
+        'name', 'max_conns', 'gzip',
+        'verbose', 'sock_family',
+        'before_serving', #'after_serving',
+        'domains', 'tasks'
+    )
     def __init__(self, **kwargs) -> None:
         self.name = kwargs.get('name', 'Server')
         self.max_conns = kwargs.get('max_conns', 5)
         self.gzip = kwargs.get('gzip', 0) # 0-9 valid levels
         self.verbose = kwargs.get('verbose', False)
+        self.sock_family: Optional[socket.AddressFamily] = None
+
+        self.before_serving: Optional[Callable] = None
+        #self.after_serving: Optional[Callable] = None # TODO?
 
         self.domains = set()
         self.tasks = set()
-
-        self.sock_family: socket.AddressFamily
 
     def set_sock_mode(self, addr: Address) -> None:
         is_inet = type(addr) is tuple and len(addr) == 2 and \
@@ -605,6 +610,11 @@ class Server:
                 loop.add_signal_handler(signal.SIGTERM, loop.stop)
             except NotImplementedError:
                 pass
+
+            # Call our before_serving coroutine,
+            # if theres one specified.
+            if self.before_serving:
+                await self.before_serving()
 
             # Start up any tasks
             for task in self.tasks:

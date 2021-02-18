@@ -84,7 +84,7 @@ def log(msg: str, col: Optional[Ansi_T] = None,
     if col:
         stdout_write(f'{_gray}[{ts_short}] {col!r}{msg}{_reset}{endl}')
     else:
-        stdout_write(f'[{ts_short}] {msg}{endl}')
+        stdout_write(f'{_gray}[{ts_short}]{_reset} {msg}{endl}')
 
     stdout_flush()
 
