@@ -702,7 +702,7 @@ class Server:
         #    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
         def _cancel_all_tasks(loop):
-            pending = asyncio.all_tasks()
+            pending = asyncio.all_tasks(loop)
             if not pending:
                 return
 
