@@ -535,7 +535,7 @@ class Server:
     __slots__ = (
         'name', 'max_conns', 'gzip',
         'verbose', 'sock_family',
-        'before_serving', #'after_serving',
+        'before_serving', 'after_serving',
         'domains', 'tasks'
     )
     def __init__(self, **kwargs) -> None:
@@ -546,7 +546,7 @@ class Server:
         self.sock_family: Optional[socket.AddressFamily] = None
 
         self.before_serving: Optional[Callable] = None
-        #self.after_serving: Optional[Callable] = None # TODO?
+        self.after_serving: Optional[Callable] = None
 
         self.domains = set()
         self.tasks = set()
@@ -663,12 +663,6 @@ class Server:
         async def runner() -> None:
             loop = asyncio.get_event_loop()
 
-            try:
-                loop.add_signal_handler(signal.SIGINT, loop.stop)
-                loop.add_signal_handler(signal.SIGTERM, loop.stop)
-            except NotImplementedError:
-                pass
-
             # Call our before_serving coroutine,
             # if theres one specified.
             if self.before_serving:
@@ -699,20 +693,55 @@ class Server:
                     client, _ = await loop.sock_accept(sock)
                     loop.create_task(self.handle(client))
 
-        if spec := importlib.util.find_spec('uvloop'):
-            uvloop = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(uvloop)
+        # NOTE: uvloop has some pretty strange implementation details
+        # that make it a bit annoying to use here.. will come back to it.
+        #if spec := importlib.util.find_spec('uvloop'):
+        #    uvloop = importlib.util.module_from_spec(spec)
+        #    spec.loader.exec_module(uvloop)
+        #
+        #    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        def _cancel_all_tasks(loop):
+            pending = asyncio.all_tasks()
+            if not pending:
+                return
+
+            for task in pending:
+                task.cancel()
+
+            loop.run_until_complete(
+                asyncio.gather(*pending, loop=loop, return_exceptions=True)
+            )
+
+            for task in pending:
+                if task.cancelled():
+                    continue
+
+                if (task_exc := task.exception()) is not None:
+                    loop.call_exception_handler({
+                        'message': 'unhandled exception during Server.run() shutdown',
+                        'exception': task_exc,
+                        'task': task,
+                    })
 
         loop = asyncio.new_event_loop()
 
         try:
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(runner())
+            return loop.run_until_complete(runner())
+        except KeyboardInterrupt:
+            print('\33[2K', end='\r')
+            log('Server closed.', Ansi.LMAGENTA)
         finally:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            # https://github.com/MagicStack/uvloop/pull/353
-            # loop.run_until_complete(loop.shutdown_default_executor())
-            asyncio.set_event_loop(None)
-            loop.close()
+            try:
+                _cancel_all_tasks(loop)
+
+                if self.after_serving:
+                    loop.run_until_complete(self.after_serving())
+
+                loop.run_until_complete(loop.shutdown_asyncgens())
+                loop.run_until_complete(loop.shutdown_default_executor())
+                # ^^ https://github.com/MagicStack/uvloop/pull/353 ^^
+            finally:
+                asyncio.set_event_loop(None)
+                loop.close()
