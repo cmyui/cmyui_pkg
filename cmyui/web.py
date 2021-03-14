@@ -16,6 +16,7 @@ import os
 import re
 import signal
 import socket
+import sys
 import time
 from enum import IntEnum
 from enum import unique
@@ -656,7 +657,7 @@ class Server:
         except socket.error:
             pass
 
-    def run(self, addr: Address) -> None:
+    def run(self, addr: Address, sigusr1_restart: bool = False) -> None:
         """Run the server indefinitely."""
         self.set_sock_mode(addr)
 
@@ -699,11 +700,13 @@ class Server:
 
             asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-        async def shutdown(signal, loop):
-            if signal is signal.SIGINT:
+        __should_restart = False
+
+        async def shutdown(sig, loop):
+            if sig is signal.SIGINT:
                 print('\33[2K', end='\r') # Remove '^C' from console
 
-            log(f'Received {signal.name} - terminating all tasks.', Ansi.LRED)
+            log(f'Received {sig.name} - terminating all tasks.', Ansi.LRED)
             tasks = [t for t in asyncio.all_tasks()
                      if t is not asyncio.current_task()]
 
@@ -715,10 +718,17 @@ class Server:
             if self.after_serving:
                 await self.after_serving()
 
+            nonlocal __should_restart
+            __should_restart = sig is signal.SIGUSR1
+
             loop.stop()
 
         loop = asyncio.new_event_loop()
-        signals = (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
+        signals = [signal.SIGHUP, signal.SIGTERM, signal.SIGINT]
+
+        if sigusr1_restart:
+            # use SIGUSR1 to restart the script.
+            signals.append(signal.SIGUSR1)
 
         for s in signals:
             loop.add_signal_handler(
@@ -730,5 +740,9 @@ class Server:
             loop.create_task(runner())
             loop.run_forever()
         finally:
-            loop.close()
             log('Server closed gracefully.', Ansi.LMAGENTA)
+            loop.close()
+
+            if __should_restart:
+                log('Server restarting.', Ansi.LMAGENTA)
+                os.execv(sys.executable, [sys.executable] + sys.argv)
