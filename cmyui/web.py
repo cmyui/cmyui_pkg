@@ -255,12 +255,44 @@ def ratelimit(period: int, max_count: int,
 # Will be (host: str, port: int) if INET,
 # or (sock_dir: str) if UNIX.
 Address = Union[tuple[str, int], str]
+Hostname_Types = Union[str, Iterable[str], re.Pattern]
 
 req_line_re = re.compile(
     r'^(?P<cmd>GET|HEAD|POST|PUT|DELETE|PATCH|OPTIONS) '
     r'(?P<path>/[^? ]*)(?P<args>\?[^ ]+)? ' # cursed?
     r'HTTP/(?P<httpver>1\.0|1\.1|2\.0|3\.0)$'
 )
+
+class CaseInsensitiveDict(dict):
+    """A dictionary with case insensitive keys."""
+    def __init__(self, *args, **kwargs) -> None:
+        self.keystore = {}
+        d = dict(*args, **kwargs)
+        for k in d.keys():
+            self.keystore[k.lower()] = k
+        return super().__init__(*args, **kwargs)
+
+    def __setitem__(self, k, v) -> None:
+        self.keystore[k.lower()] = k
+        return super().__setitem__(k, v)
+
+    def __getitem__(self, k) -> str:
+        k_lower = k.lower()
+        if k_lower in self.keystore:
+            k = self.keystore[k_lower]
+        return super().__getitem__(k)
+
+    def __contains__(self, k: str) -> bool:
+        k_lower = k.lower()
+        if k_lower in self.keystore:
+            k = self.keystore[k_lower]
+        return super().__contains__(k)
+
+    def get(self, k, failobj=None) -> Optional[str]:
+        k_lower = k.lower()
+        if k_lower in self.keystore:
+            k = self.keystore[k_lower]
+        return super().get(k, failobj)
 
 class Connection:
     __slots__ = (
@@ -281,7 +313,7 @@ class Connection:
         self.client = client
 
         # Request params
-        self.headers = {}
+        self.headers = CaseInsensitiveDict()
         self.body: Optional[bytearray] = None
         self.cmd = ''
         self.path = ''
@@ -324,7 +356,9 @@ class Connection:
                 log('Invalid header', Ansi.LRED)
                 return
 
-            self.headers.update({header[0]: header[1].lstrip()})
+            # normalize header capitalization
+            # https://github.com/cmyui/cmyui_pkg/issues/3
+            self.headers[header[0].title()] = header[1].lstrip()
 
         if m['args']: # parse args from url path
             for param_line in m['args'][1:].split('&'):
@@ -334,7 +368,7 @@ class Connection:
                     log(f'Invalid url path argument', Ansi.LRED)
                     return
 
-                self.args.update({param[0]: param[1]})
+                self.args[param[0]] = param[1]
 
     async def parse_multipart(self) -> None:
         # retrieve the multipart boundary from the headers.
@@ -352,7 +386,7 @@ class Connection:
                 if len(split := header.split(':', 1)) != 2:
                     breakpoint()
 
-                headers.update({split[0]: split[1].lstrip()})
+                headers[split[0]] = split[1].lstrip()
 
             if 'Content-Disposition' not in headers:
                 breakpoint()
@@ -362,16 +396,16 @@ class Connection:
                 if len(split := attr.split('=', 1)) != 2:
                     breakpoint()
 
-                attrs.update({split[0].lstrip(): split[1][1:-1]})
+                attrs[split[0].lstrip()] = split[1][1:-1]
 
             body = _body[:-2]
 
             # multipart args should be decoded,
             # but files should stay as bytes.
             if 'filename' in attrs:
-                self.files.update({attrs['filename']: body})
+                self.files[attrs['filename']] = body
             else:
-                self.multipart_args.update({attrs['name']: body.decode()})
+                self.multipart_args[attrs['name']] = body.decode()
 
     async def read(self) -> bytes:
         loop = asyncio.get_event_loop()
@@ -466,22 +500,30 @@ class Connection:
 
 class Route:
     """A single endpoint within of domain."""
-    __slots__ = ('methods', 'handler', 'cond')
-    def __init__(self, key: Union[str, Iterable, re.Pattern],
+    __slots__ = ('path', 'methods', 'handler', 'cond')
+    def __init__(self, path: Union[str, Iterable, re.Pattern],
                  methods: list[str], handler: Callable) -> None:
+        self.path = path # for __repr__
         self.methods = methods
         self.handler = handler
 
-        if isinstance(key, str):
-            self.cond = lambda k: k == key
-        elif isinstance(key, Iterable):
-            self.cond = lambda k: k in key
-        elif isinstance(key, re.Pattern):
-            self.cond = lambda k: key.match(k)
+        # do these checks once rather
+        # than for every conn.. lol
+        if isinstance(path, str):
+            self.cond = lambda k: k == path
+        elif isinstance(path, Iterable):
+            self.cond = lambda k: k in path
+            self.path = str(path)
+        elif isinstance(path, re.Pattern):
+            self.cond = lambda k: path.match(k)
+            self.path = f'~{self.path.pattern}' # ~ for rgx
 
-    def matches(self, key: str, method: str) -> bool:
-        """Check if a given `key` matches our method & condition."""
-        return method in self.methods and self.cond(key)
+    def __repr__(self) -> str:
+        return f'{"/".join(self.methods)} {self.path}'
+
+    def matches(self, path: str, method: str) -> bool:
+        """Check if a given `path` matches our method & condition."""
+        return method in self.methods and self.cond(path)
 
 class RouteMap:
     """A collection of endpoints of a domain."""
@@ -489,19 +531,19 @@ class RouteMap:
     def __init__(self) -> None:
         self.routes = set() # {Route(), ...}
 
-    def route(self, path: Union[str, Iterable[str], re.Pattern],
+    def route(self, path: Hostname_Types,
               methods: list[str] = ['GET']) -> Callable:
         """Add a possible route to the server."""
         if not isinstance(path, (str, Iterable, re.Pattern)):
             raise TypeError('Route should be str | Iterable[str] | re.Pattern')
 
-        def wrapper(f: Coroutine) -> Coroutine:
-            self.routes.add(Route(path, methods, f))
-            return f
+        def wrapper(handler: Coroutine) -> Coroutine:
+            self.routes.add(Route(path, methods, handler))
+            return handler
 
         return wrapper
 
-    def find_route(self, path: str, method: str):
+    def find_route(self, path: str, method: str) -> Optional[Route]:
         for route in self.routes:
             if route.matches(path, method):
                 return route
@@ -509,18 +551,24 @@ class RouteMap:
 class Domain(RouteMap):
     """The main routemap, with a hostname.
        Allows for merging of additional routemaps."""
-    __slots__ = ('cond',)
-    def __init__(self, hostname: Union[str, Iterable[str], re.Pattern]) -> None:
+    __slots__ = ('hostname', 'cond',)
+    def __init__(self, hostname: Hostname_Types) -> None:
         super().__init__()
+        self.hostname = hostname # for __repr__
 
         if isinstance(hostname, str):
             self.cond = lambda hn: hn == hostname
         elif isinstance(hostname, Iterable):
             self.cond = lambda hn: hn in hostname
+            self.hostname = str(hostname)
         elif isinstance(hostname, re.Pattern):
             self.cond = lambda hn: hostname.match(hn) is not None
+            self.hostname = f'~{hostname.pattern}' # ~ for rgx
         else:
             raise TypeError('Key should be str | Iterable[str] | re.Pattern')
+
+    def __repr__(self) -> str:
+        return self.hostname
 
     def matches(self, hostname: str) -> bool:
         """Check if a hostname matches our condition."""
@@ -535,7 +583,7 @@ class Server:
     """An asynchronous multi-domain server."""
     __slots__ = (
         'name', 'max_conns', 'gzip',
-        'verbose', 'sock_family',
+        'debug', 'sock_family',
         'before_serving', 'after_serving',
         'domains', 'tasks'
     )
@@ -543,7 +591,7 @@ class Server:
         self.name = kwargs.get('name', 'Server')
         self.max_conns = kwargs.get('max_conns', 5)
         self.gzip = kwargs.get('gzip', 0) # 0-9 valid levels
-        self.verbose = kwargs.get('verbose', False)
+        self.debug = kwargs.get('debug', False)
         self.sock_family: Optional[socket.AddressFamily] = None
 
         self.before_serving: Optional[Callable] = None
@@ -577,9 +625,9 @@ class Server:
     def remove_domains(self, domains: set[Domain]) -> None:
         self.domains -= domains
 
-    def find_domain(self, host_header: str):
+    def find_domain(self, hostname: str):
         for domain in self.domains:
-            if domain.matches(host_header):
+            if domain.matches(hostname):
                 return domain
 
     # Task management
@@ -637,18 +685,17 @@ class Server:
         # Dispatch the handler.
         code = await self.dispatch(conn)
 
-        # Event complete, stop timing, log result and cleanup.
-        time_taken = (time.time_ns() - start_time) / 1e6
+        if self.debug:
+            # Event complete, stop timing, log result and cleanup.
+            time_taken = (time.time_ns() - start_time) / 1e6
 
-        colour = (Ansi.LGREEN  if 200 <= code < 300 else
-                  Ansi.LYELLOW if 300 <= code < 400 else
-                  Ansi.LRED)
+            colour = (Ansi.LGREEN  if 200 <= code < 300 else
+                    Ansi.LYELLOW if 300 <= code < 400 else
+                    Ansi.LRED)
 
-        uri = f'{conn.headers["Host"]}{conn.path}'
+            uri = f'{conn.headers["Host"]}{conn.path}'
 
-        log(f'[{conn.cmd}] {code} {uri}', colour)
-
-        if self.verbose:
+            log(f'[{conn.cmd}] {code} {uri}', colour)
             log(f'Request took {time_taken:.2f}ms', Ansi.LBLUE)
 
         try:
