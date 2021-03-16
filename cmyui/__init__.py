@@ -23,11 +23,10 @@ __title__ = 'cmyui'
 __author__ = 'cmyui'
 __license__ = 'MIT'
 __copyright__ = 'Copyright 2020 cmyui'
-__version__ = '1.6.9'
+__version__ = '1.6.10'
 
 from .logging import *
 from .mysql import *
-from .postgres import *
 from .utils import *
 from .version import *
 from .web import *

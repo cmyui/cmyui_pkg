@@ -65,13 +65,13 @@ stdout_flush = sys.stdout.flush
 _gray = repr(Ansi.GRAY)
 _reset = repr(Ansi.RESET)
 
-def printc(s: str, col: Ansi_T, endl: str = '\n') -> None:
+def printc(s: str, col: Ansi_T, end: str = '\n') -> None:
     """Print a string, in a specified ansi colour."""
-    stdout_write(f'{col!r}{s}{Ansi.RESET!r}{endl}')
+    stdout_write(f'{col!r}{s}{Ansi.RESET!r}{end}')
     stdout_flush()
 
 def log(msg: str, col: Optional[Ansi_T] = None,
-        fd: str = None, endl: str = '\n') -> None:
+        fd: Optional[str] = None, end: str = '\n') -> None:
     """\
     Print a string, in a specified ansi colour with timestamp.
 
@@ -82,9 +82,9 @@ def log(msg: str, col: Optional[Ansi_T] = None,
     ts_short = get_timestamp(full=False)
 
     if col:
-        stdout_write(f'{_gray}[{ts_short}] {col!r}{msg}{_reset}{endl}')
+        stdout_write(f'{_gray}[{ts_short}] {col!r}{msg}{_reset}{end}')
     else:
-        stdout_write(f'{_gray}[{ts_short}]{_reset} {msg}{endl}')
+        stdout_write(f'{_gray}[{ts_short}]{_reset} {msg}{end}')
 
     stdout_flush()
 

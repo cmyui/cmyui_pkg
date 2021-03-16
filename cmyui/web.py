@@ -29,9 +29,10 @@ from typing import Iterable
 from typing import Optional
 from typing import Union
 
-from .logging import log
 from .logging import Ansi
 from .logging import AnsiRGB
+from .logging import log
+from .logging import printc
 
 __all__ = (
     # Informational
@@ -365,7 +366,7 @@ class Connection:
                 param = param_line.split('=', 1)
 
                 if len(param) != 2: # Only key received.
-                    log(f'Invalid url path argument', Ansi.LRED)
+                    log('Invalid url path argument.', Ansi.LRED)
                     return
 
                 self.args[param[0]] = param[1]
@@ -408,7 +409,7 @@ class Connection:
                 self.multipart_args[attrs['name']] = body.decode()
 
     async def read(self) -> bytes:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         # create a temp buffer, and read until we find
         # b'\r\n\r\n', meaning we've read all the headers.
@@ -491,12 +492,15 @@ class Connection:
         if body:
             response += body
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         try: # Send all data to client.
             await loop.sock_sendall(self.client, response)
         except BrokenPipeError:
-            log('Connection ended abruptly', Ansi.LRED)
+            # TODO: perhaps a way to detect this before
+            # constructing the whole response? lol..
+            #log('Connection ended abruptly', Ansi.LRED)
+            pass
 
 class Route:
     """A single endpoint within of domain."""
@@ -703,14 +707,14 @@ class Server:
             # Event complete, stop timing, log result and cleanup.
             time_taken = (time.time_ns() - start_time) / 1e6
 
-            colour = (Ansi.LGREEN  if 200 <= code < 300 else
-                    Ansi.LYELLOW if 300 <= code < 400 else
-                    Ansi.LRED)
+            col = (Ansi.LGREEN  if 200 <= code < 300 else
+                   Ansi.LYELLOW if 300 <= code < 400 else
+                   Ansi.LRED)
 
             uri = f'{conn.headers["Host"]}{conn.path}'
 
-            log(f'[{conn.cmd}] {code} {uri}', colour)
-            log(f'Request took {time_taken:.2f}ms', Ansi.LBLUE)
+            log(f'[{conn.cmd}] {code} {uri}', col, end=' | ')
+            printc(f'Elapsed: {time_taken:.2f}ms', Ansi.LBLUE)
 
         try:
             client.shutdown(socket.SHUT_RDWR)
@@ -738,7 +742,8 @@ class Server:
             self.set_sock_mode(addr)
 
             async def runner() -> None:
-                loop = asyncio.get_event_loop()
+                log(f'=== Starting up {self.name} ===', Ansi.LMAGENTA)
+                loop = asyncio.get_running_loop()
 
                 # Call our before_serving coroutine,
                 # if theres one specified.
@@ -746,8 +751,10 @@ class Server:
                     await self.before_serving()
 
                 # Start pending coroutine tasks.
-                for task in self._task_coros:
-                    self.tasks.add(loop.create_task(task))
+                log(f'-> Starting {len(self._task_coros)} tasks.', Ansi.LMAGENTA)
+                for coro in self._task_coros:
+                    self.tasks.add(loop.create_task(coro))
+
                 self._task_coros.clear()
 
                 # Setup socket & begin listening
@@ -765,7 +772,7 @@ class Server:
                     sock.listen(self.max_conns)
                     sock.setblocking(False)
 
-                    log(f'{self.name} listening @ {addr}', AnsiRGB(0x00ff7f))
+                    log(f'-> Listening @ {addr}', AnsiRGB(0x00ff7f))
 
                     while True:
                         client, _ = await loop.sock_accept(sock)
@@ -804,31 +811,36 @@ class Server:
                 if sig is signal.SIGINT:
                     print('\33[2K', end='\r') # Remove '^C' from console
 
-                log(f'=== [{sig.name}] shutting down gracefully. ===', Ansi.LRED)
+                log(f'-> Received {sig.name} signal, shutting down.', Ansi.LRED)
 
-                current_task = asyncio.current_task()
+                cancelled = []
 
-                # get the tasks we want to cancel, and await.
-                to_cancel = [self._runner_task, *self.tasks]
+                # No longer accept any new connections
+                log('-> Closing socket listener.', Ansi.LMAGENTA)
+                self._runner_task.cancel()
+                cancelled.append(self._runner_task)
+
+                # Shut down all running tasks
+                if self.tasks:
+                    log(f'-> Cancelling {len(self.tasks)} tasks.', Ansi.LMAGENTA)
+                    for task in self.tasks:
+                        task.cancel()
+                        cancelled.append(task)
+
+                await asyncio.gather(*cancelled, return_exceptions=True)
+
                 to_await = [t for t in asyncio.all_tasks()
-                            if t not in (current_task, *to_cancel)]
+                            if t is not asyncio.current_task()]
                 timeout = 5.0
 
-                log(f'-> Cancelling {len(to_cancel)} listeners.', Ansi.LMAGENTA)
-                for task in to_cancel:
-                    task.cancel()
-                await asyncio.gather(*to_cancel, return_exceptions=True)
-
                 if to_await:
-                    log(f'-> Awaiting {len(to_await)} handlers.', Ansi.LMAGENTA)
+                    log(f'-> Awaiting {len(to_await)} pending handlers', Ansi.LMAGENTA)
                     for task in to_await:
-                        qualname = task.get_coro().__qualname__
                         try:
-                            await asyncio.wait_for(task, timeout=timeout)
+                            asyncio.wait_for(task, timeout=timeout)
                         except asyncio.TimeoutError:
-                            log(f'{qualname} timed out ({timeout}s).', Ansi.LRED)
-                else:
-                    log('-> No current handlers to await.', Ansi.LMAGENTA)
+                            qualname = task.get_coro().__qualname__
+                            log(f'-> {qualname} timed out ({timeout}s)', Ansi.LRED)
 
                 # run `after_serving` if it's set.
                 if self.after_serving:
@@ -857,10 +869,15 @@ class Server:
         try:
             self._runner_task = loop.create_task(runner())
             loop.run_forever()
+        except: # exception raised in the users code?
+            # I'm not sure what I should do here; probably shutdown,
+            # but I'm going to think about it a bit more lol.
+            #loop.run_until_complete(shutdown(signal.SIGTERM, loop))
+            pass
         finally:
-            log('=== Server closed gracefully. ===', Ansi.LMAGENTA)
+            log(f'=== Shut down {self.name} ===', Ansi.LMAGENTA)
             loop.close()
 
             if __should_restart:
-                log('=== Server restarting. ===', Ansi.LMAGENTA)
+                log('=== Server restarting ===', Ansi.LMAGENTA)
                 os.execv(sys.executable, [sys.executable] + sys.argv)

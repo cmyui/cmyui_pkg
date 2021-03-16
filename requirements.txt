@@ -1,5 +1,4 @@
 aiohttp
 aiomysql
 mysql-connector-python
-asyncpg
 orjson
