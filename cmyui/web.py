@@ -751,7 +751,8 @@ class Server:
                     await self.before_serving()
 
                 # Start pending coroutine tasks.
-                log(f'-> Starting {len(self._task_coros)} tasks.', Ansi.LMAGENTA)
+                if self.debug:
+                    log(f'-> Starting {len(self._task_coros)} tasks.', Ansi.LMAGENTA)
                 for coro in self._task_coros:
                     self.tasks.add(loop.create_task(coro))
 
@@ -816,13 +817,15 @@ class Server:
                 cancelled = []
 
                 # No longer accept any new connections
-                log('-> Closing socket listener.', Ansi.LMAGENTA)
+                if self.debug:
+                    log('-> Closing socket listener.', Ansi.LMAGENTA)
                 self._runner_task.cancel()
                 cancelled.append(self._runner_task)
 
                 # Shut down all running tasks
                 if self.tasks:
-                    log(f'-> Cancelling {len(self.tasks)} tasks.', Ansi.LMAGENTA)
+                    if self.debug:
+                        log(f'-> Cancelling {len(self.tasks)} tasks.', Ansi.LMAGENTA)
                     for task in self.tasks:
                         task.cancel()
                         cancelled.append(task)
@@ -834,13 +837,15 @@ class Server:
                 timeout = 5.0
 
                 if to_await:
-                    log(f'-> Awaiting {len(to_await)} pending handlers', Ansi.LMAGENTA)
+                    if self.debug:
+                        log(f'-> Awaiting {len(to_await)} pending handlers', Ansi.LMAGENTA)
                     for task in to_await:
                         try:
-                            asyncio.wait_for(task, timeout=timeout)
+                            await asyncio.wait_for(task, timeout=timeout)
                         except asyncio.TimeoutError:
                             qualname = task.get_coro().__qualname__
-                            log(f'-> {qualname} timed out ({timeout}s)', Ansi.LRED)
+                            if self.debug:
+                                log(f'-> wait_for({qualname}) timed out ({timeout}s)', Ansi.LRED)
 
                 # run `after_serving` if it's set.
                 if self.after_serving:
