@@ -585,7 +585,9 @@ class Server:
         'name', 'max_conns', 'gzip',
         'debug', 'sock_family',
         'before_serving', 'after_serving',
-        'domains', 'tasks'
+        'domains',
+        'tasks', '_task_coros',
+        '_runner_task', '_shutdown_reqs'
     )
     def __init__(self, **kwargs) -> None:
         self.name = kwargs.get('name', 'Server')
@@ -598,7 +600,12 @@ class Server:
         self.after_serving: Optional[Callable] = None
 
         self.domains = set()
+
         self.tasks = set()
+        self._task_coros = set() # coros not yet run
+
+        self._runner_task: Optional[Coroutine] = None
+        self._shutdown_reqs: int = 0
 
     def set_sock_mode(self, addr: Address) -> None:
         is_inet = type(addr) is tuple and len(addr) == 2 and \
@@ -632,17 +639,24 @@ class Server:
 
     # Task management
 
+    def add_pending_task(self, coro: Coroutine) -> None:
+        """Add a coroutine to be launched as a task at
+           startup & shutdown cleanly on shutdown."""
+        self._task_coros.add(coro)
+
+    def remove_pending_task(self, coro: Coroutine) -> None:
+        """Remove a pending coroutine awaiting server launch."""
+        self._task_coros.remove(coro)
+
     def add_task(self, task: asyncio.Task) -> None:
+        """Add an existing task to be cleaned
+           up on shutdown."""
         self.tasks.add(task)
 
     def remove_task(self, task: asyncio.Task) -> None:
+        """Remove an existing task from being
+           cleaned up on shutdown."""
         self.tasks.remove(task)
-
-    def add_tasks(self, tasks: set[asyncio.Task]) -> None:
-        self.tasks |= tasks
-
-    def remove_tasks(self, tasks: set[asyncio.Task]) -> None:
-        self.tasks -= tasks
 
     # True Internals
 
@@ -704,92 +718,149 @@ class Server:
         except socket.error:
             pass
 
-    def run(self, addr: Address, sigusr1_restart: bool = False) -> None:
+    def run(
+        self, addr: Address,
+        loop: Optional[asyncio.AbstractEventLoop] = None,
+        handle_signals: bool = True,
+        # use signal.SIGUSR1 for restarts.
+        # note this is only used with handle_signals enabled.
+        sigusr1_restart: bool = False # signal.SIGUSR1 for restart
+    ) -> None:
         """Run the server indefinitely."""
-        self.set_sock_mode(addr)
+        if not loop:
+            # no event loop given, check if one's running
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                pass
 
-        async def runner() -> None:
-            loop = asyncio.get_event_loop()
+        if not loop:
+            self.set_sock_mode(addr)
 
-            # Call our before_serving coroutine,
-            # if theres one specified.
-            if self.before_serving:
-                await self.before_serving()
+            async def runner() -> None:
+                loop = asyncio.get_event_loop()
 
-            # Start up any tasks
-            for task in self.tasks:
-                loop.create_task(task)
+                # Call our before_serving coroutine,
+                # if theres one specified.
+                if self.before_serving:
+                    await self.before_serving()
 
-            # Setup socket & begin listening
+                # Start pending coroutine tasks.
+                for task in self._task_coros:
+                    self.tasks.add(loop.create_task(task))
+                self._task_coros.clear()
 
-            if self.sock_family == socket.AF_UNIX:
-                if os.path.exists(addr):
-                    os.remove(addr)
-
-            with socket.socket(self.sock_family) as sock:
-                sock.bind(addr)
+                # Setup socket & begin listening
 
                 if self.sock_family == socket.AF_UNIX:
-                    os.chmod(addr, 0o777)
+                    if os.path.exists(addr):
+                        os.remove(addr)
 
-                sock.listen(self.max_conns)
-                sock.setblocking(False)
+                with socket.socket(self.sock_family) as sock:
+                    sock.bind(addr)
 
-                log(f'{self.name} listening @ {addr}', AnsiRGB(0x00ff7f))
+                    if self.sock_family == socket.AF_UNIX:
+                        os.chmod(addr, 0o777)
 
-                while True:
-                    client, _ = await loop.sock_accept(sock)
-                    loop.create_task(self.handle(client))
+                    sock.listen(self.max_conns)
+                    sock.setblocking(False)
 
-        if spec := importlib.util.find_spec('uvloop'):
-            uvloop = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(uvloop)
+                    log(f'{self.name} listening @ {addr}', AnsiRGB(0x00ff7f))
 
-            asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+                    while True:
+                        client, _ = await loop.sock_accept(sock)
+                        loop.create_task(self.handle(client))
 
-        __should_restart = False
+            # no event loop running, we need to make our own
+            if spec := importlib.util.find_spec('uvloop'):
+                # use uvloop if it's already installed
+                # TODO: could make this configurable
+                # incase people want to disable it
+                # for their own use-cases?
+                uvloop = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(uvloop)
 
-        async def shutdown(sig, loop):
-            if sig is signal.SIGINT:
-                print('\33[2K', end='\r') # Remove '^C' from console
+                asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-            log(f'Received {sig.name} - terminating all tasks.', Ansi.LRED)
-            tasks = [t for t in asyncio.all_tasks()
-                     if t is not asyncio.current_task()]
+            loop = asyncio.new_event_loop()
 
-            [task.cancel() for task in tasks]
+        if handle_signals:
+            # attach a shutdown handler to SIGHUP, SIGTERM,
+            # and SIGINT. if you'd like to clean up your own
+            # stuff, attach your code to `self.after_serving`.
+            # if `sigusr1_restart` is enabled, also attach
+            # SIGUSR1 and run execv to reboot before shutdown.
+            __should_restart = False
 
-            await asyncio.gather(*tasks, return_exceptions=True)
+            async def shutdown(sig, loop):
+                self._shutdown_reqs += 1
 
-            # run `after_serving` if it's set.
-            if self.after_serving:
-                await self.after_serving()
+                if self._shutdown_reqs != 1:
+                    if self._shutdown_reqs == 2:
+                        log('Only one shutdown request is required. '
+                            'Please be patient!', Ansi.LRED)
+                    return
 
-            nonlocal __should_restart
-            __should_restart = sig is signal.SIGUSR1
+                if sig is signal.SIGINT:
+                    print('\33[2K', end='\r') # Remove '^C' from console
 
-            loop.stop()
+                log(f'=== [{sig.name}] shutting down gracefully. ===', Ansi.LRED)
 
-        loop = asyncio.new_event_loop()
-        signals = [signal.SIGHUP, signal.SIGTERM, signal.SIGINT]
+                current_task = asyncio.current_task()
 
-        if sigusr1_restart:
-            # use SIGUSR1 to restart the script.
-            signals.append(signal.SIGUSR1)
+                # get the tasks we want to cancel, and await.
+                to_cancel = [self._runner_task, *self.tasks]
+                to_await = [t for t in asyncio.all_tasks()
+                            if t not in (current_task, *to_cancel)]
+                timeout = 5.0
 
-        for s in signals:
-            loop.add_signal_handler(
-                sig = s,
-                callback = lambda s = s: asyncio.create_task(shutdown(s, loop))
-            )
+                log(f'-> Cancelling {len(to_cancel)} listeners.', Ansi.LMAGENTA)
+                for task in to_cancel:
+                    task.cancel()
+                await asyncio.gather(*to_cancel, return_exceptions=True)
+
+                if to_await:
+                    log(f'-> Awaiting {len(to_await)} handlers.', Ansi.LMAGENTA)
+                    for task in to_await:
+                        qualname = task.get_coro().__qualname__
+                        try:
+                            await asyncio.wait_for(task, timeout=timeout)
+                        except asyncio.TimeoutError:
+                            log(f'{qualname} timed out ({timeout}s).', Ansi.LRED)
+                else:
+                    log('-> No current handlers to await.', Ansi.LMAGENTA)
+
+                # run `after_serving` if it's set.
+                if self.after_serving:
+                    await self.after_serving()
+
+                nonlocal __should_restart
+                __should_restart = sig is signal.SIGUSR1
+
+                loop.stop()
+
+            signals = [signal.SIGHUP, signal.SIGTERM, signal.SIGINT]
+
+            if sigusr1_restart:
+                # use SIGUSR1 to restart the script.
+                signals.append(signal.SIGUSR1)
+
+            for s in signals:
+                loop.add_signal_handler(
+                    sig = s,
+                    callback = lambda s = s: asyncio.create_task(shutdown(s, loop))
+                )
+        else:
+            # not handling signals
+            __should_restart = False
 
         try:
-            loop.create_task(runner())
+            self._runner_task = loop.create_task(runner())
             loop.run_forever()
         finally:
-            log('Server closed gracefully.', Ansi.LMAGENTA)
+            log('=== Server closed gracefully. ===', Ansi.LMAGENTA)
             loop.close()
 
             if __should_restart:
-                log('Server restarting.', Ansi.LMAGENTA)
+                log('=== Server restarting. ===', Ansi.LMAGENTA)
                 os.execv(sys.executable, [sys.executable] + sys.argv)
