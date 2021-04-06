@@ -1,15 +1,11 @@
 # -*- coding: utf-8 -*-
 
-# NOTE: this package used to include a
-# synchronous server implementation,
-# though it was removed as the async
-# one far surpassed it in development.
-
-# Perhaps at some point, it will be re-added,
-# though it doesn't sound too useful atm. :P
+# Domain-based asynchronous server implementation, written from
+# sockets, mostly with https://github.com/cmyui/gulag in mind.
 
 import asyncio
 import gzip
+import http
 import importlib
 import inspect
 import os
@@ -18,8 +14,6 @@ import signal
 import socket
 import sys
 import time
-from enum import IntEnum
-from enum import unique
 from functools import wraps
 from time import perf_counter as clock
 from typing import Any
@@ -35,11 +29,8 @@ from .logging import log
 from .logging import printc
 
 __all__ = (
-    # Informational
-    'HTTPStatus',
     'Address',
-
-    # Functional
+    'STATUS_LINES',
     'ratelimit',
     'Connection',
     'RouteMap',
@@ -47,158 +38,10 @@ __all__ = (
     'Server'
 )
 
-_httpstatus_str = {
-    # Informational
-    100: "Continue",
-    101: "Switching Protocols",
-    102: "Processing",
-
-    # Success
-    200: "Ok",
-    201: "Created",
-    202: "Accepted",
-    203: "Non-authoritative Information",
-    204: "No Content",
-    205: "Reset Content",
-    206: "Partial Content",
-    207: "Multi-Status",
-    208: "Already Reported",
-    226: "IM Used",
-
-    # Redirection
-    300: "Multiple Choices",
-    301: "Moved Permanently",
-    302: "Found",
-    303: "See Other",
-    304: "Not Modified",
-    305: "Use Proxy",
-    307: "Temporary Redirect",
-    308: "Permanent Redirect",
-
-    # Client Error
-    400: "Bad Request",
-    401: "Unauthorized",
-    402: "Payment Required",
-    403: "Forbidden",
-    404: "Not Found",
-    405: "Method Not Allowed",
-    406: "Not Acceptable",
-    407: "Proxy Authentication Required",
-    408: "Request Timeout",
-    409: "Conflict",
-    410: "Gone",
-    411: "Length Required",
-    412: "Precondition Failed",
-    413: "Payload Too Large",
-    414: "Request-URI Too Long",
-    415: "Unsupported Media Type",
-    416: "Requested Range Not Satisfiable",
-    417: "Expectation Failed",
-    418: "I'm a teapot",
-    421: "Misdirected Request",
-    422: "Unprocessable Entity",
-    423: "Locked",
-    424: "Failed Dependency",
-    426: "Upgrade Required",
-    428: "Precondition Required",
-    429: "Too Many Requests",
-    431: "Request Header Fields Too Large",
-    444: "Connection Closed Without Response",
-    451: "Unavailable For Legal Reasons",
-    499: "Client Closed Request",
-
-    # Server Error
-    500: "Internal Server Error",
-    501: "Not Implemented",
-    502: "Bad Gateway",
-    503: "Service Unavailable",
-    504: "Gateway Timeout",
-    505: "HTTP Version Not Supported",
-    506: "Variant Also Negotiates",
-    507: "Insufficient Storage",
-    508: "Loop Detected",
-    510: "Not Extended",
-    511: "Network Authentication Required",
-    599: "Network Connect Timeout Error"
+STATUS_LINES = {
+    c.value: f'HTTP/1.1 {c.value} {c.phrase.upper()}'
+    for c in http.HTTPStatus
 }
-
-@unique
-class HTTPStatus(IntEnum):
-    # Informational
-    Continue = 100
-    SwitchingProtocols = 101
-    Processing = 102
-
-    # Success
-    Ok = 200
-    Created = 201
-    Accepted = 202
-    NonAuthoritativeInformation = 203
-    NoContent = 204
-    ResetContent = 205
-    PartialContent = 206
-    MultiStatus = 207
-    AlreadyReported = 208
-    IMUsed = 226
-
-    # Redirection
-    MultipleChoices = 300
-    MovedPermanently = 301
-    Found = 302
-    SeeOther = 303
-    NotModified = 304
-    UseProxy = 305
-    TemporaryRedirect = 307
-    PermanentRedirect = 308
-
-    # Client Error
-    BadRequest = 400
-    Unauthorized = 401
-    PaymentRequired = 402
-    Forbidden = 403
-    NotFound = 404
-    MethodNotAllowed = 405
-    NotAcceptable = 406
-    ProxyAuthenticationRequired = 407
-    RequestTimeout = 408
-    Conflict = 409
-    Gone = 410
-    LengthRequired = 411
-    PreconditionFailed = 412
-    PayloadTooLarge = 413
-    RequestURITooLong = 414
-    UnsupportedMediaType = 415
-    RequestedRangeNotSatisfiable = 416
-    ExpectationFailed = 417
-    ImATeapot = 418
-    MisdirectedRequest = 421
-    UnprocessableEntity = 422
-    Locked = 423
-    FailedDependency = 424
-    UpgradeRequired = 426
-    PreconditionRequired = 428
-    TooManyRequests = 429
-    RequestHeaderFieldsTooLarge = 431
-    ConnectionClosedWithoutResponse = 444
-    UnavailableForLegalReasons = 451
-    ClientClosedRequest = 499
-
-    # Server Error
-    InternalServerError = 500
-    NotImplemented = 501
-    BadGateway = 502
-    ServiceUnavailable = 503
-    GatewayTimeout = 504
-    HTTPVersionNotSupported = 505
-    VariantAlsoNegotiates = 506
-    InsufficientStorage = 507
-    LoopDetected = 508
-    NotExtended = 510
-    NetworkAuthenticationRequired = 511
-    NetworkConnectTimeoutError = 599
-
-    def __repr__(self) -> str:
-        return f'{self.value} {_httpstatus_str[self.value]}'
 
 def ratelimit(period: int, max_count: int,
               default_return: Optional[Any] = None
@@ -309,7 +152,6 @@ class Connection:
         'resp_code', 'resp_headers',
     )
 
-    # TODO: probably cut back on the defaultdicts
     def __init__(self, client: socket.socket) -> None:
         self.client = client
 
@@ -327,7 +169,7 @@ class Connection:
 
         # Response params
         self.resp_code = 200
-        self.resp_headers: list[str] = []
+        self.resp_headers = {}
 
     """ Request methods """
 
@@ -335,9 +177,11 @@ class Connection:
         # Retrieve the http request line.
         delim = data.find('\r\n')
 
+        req_line = data[:delim]
+
         # Make sure request line is properly formatted.
-        if not (m := req_line_re.match(data[:delim])):
-            log('Invalid request line', Ansi.LRED)
+        if not (m := req_line_re.match(req_line)):
+            log(f'Invalid request line ({req_line})', Ansi.LRED)
             return
 
         # cmd & httpver are fine as-is
@@ -350,24 +194,19 @@ class Connection:
 
         # Parse the headers into our class.
         for header_line in data[delim + 2:].split('\r\n'):
-            # Split header into k: v pair.
-            header = header_line.split(':', 1)
-
-            if len(header) != 2: # Only key received.
-                log('Invalid header', Ansi.LRED)
-                return
+            if len(split := header_line.split(':', 1)) != 2:
+                log(f'Invalid header ({header_line})', Ansi.LRED)
+                continue
 
             # normalize header capitalization
             # https://github.com/cmyui/cmyui_pkg/issues/3
-            self.headers[header[0].title()] = header[1].lstrip()
+            self.headers[split[0].title()] = split[1].lstrip()
 
         if m['args']: # parse args from url path
             for param_line in m['args'][1:].split('&'):
-                param = param_line.split('=', 1)
-
-                if len(param) != 2: # Only key received.
-                    log('Invalid url path argument.', Ansi.LRED)
-                    return
+                if len(param := param_line.split('=', 1)) != 2:
+                    log(f'Invalid path arg ({param_line})', Ansi.LRED)
+                    continue
 
                 self.args[param[0]] = param[1]
 
@@ -385,17 +224,20 @@ class Connection:
             headers = {}
             for header in _headers.decode().split('\r\n')[1:]:
                 if len(split := header.split(':', 1)) != 2:
-                    breakpoint()
+                    log(f'Invalid multipart header ({header})', Ansi.LRED)
+                    continue
 
                 headers[split[0]] = split[1].lstrip()
 
             if 'Content-Disposition' not in headers:
-                breakpoint()
+                log('Invalid multipart headers (no content-disposition)', Ansi.LRED)
+                continue
 
             attrs = {}
             for attr in headers['Content-Disposition'].split(';')[1:]:
                 if len(split := attr.split('=', 1)) != 2:
-                    breakpoint()
+                    log(f'Invalid multipart attr ({attr})', Ansi.LRED)
+                    continue
 
                 attrs[split[0].lstrip()] = split[1][1:-1]
 
@@ -466,41 +308,36 @@ class Connection:
             # still be arguments passed as multipart/form-data.
 
             if 'Content-Type' in self.headers:
-                if self.headers['Content-Type'].startswith('multipart/form-data'):
+                content_type = self.headers['Content-Type']
+                if content_type.startswith('multipart/form-data'):
                     await self.parse_multipart()
 
     """ Response methods """
 
-    def add_resp_header(self, header: str, index: int = -1) -> None:
-        if index > -1:
-            self.resp_headers.insert(index, header)
-        else:
-            self.resp_headers.append(header)
-
-    async def send(self, status: Union[HTTPStatus, int], body: bytes = b'') -> None:
+    async def send(self, status: int, body: bytes = b'') -> None:
         """Attach appropriate headers and send data back to the client."""
         # Insert HTTP response line & content at the beginning of headers.
-        self.add_resp_header(f'HTTP/1.1 {HTTPStatus(status)!r}'.upper(), 0)
+        header_lines = [STATUS_LINES[status]]
 
         if body: # Add content-length header if we are sending a body.
-            self.add_resp_header(f'Content-Length: {len(body)}', 1)
+            header_lines.append(f'Content-Length: {len(body)}')
 
-        # Encode the headers.
-        headers_str = '\r\n'.join(self.resp_headers)
-        response = f'{headers_str}\r\n\r\n'.encode()
+        # Add all user-specified response headers.
+        header_lines.extend(map(': '.join, self.resp_headers.items()))
 
+        # Create an encoded response from the headers.
+        resp = ('\r\n'.join(header_lines) + '\r\n\r\n').encode()
+
+        # Add body to response if we have one to send.
         if body:
-            response += body
+            resp += body
 
+        # Send all data to the client.
         loop = asyncio.get_running_loop()
-
-        try: # Send all data to client.
-            await loop.sock_sendall(self.client, response)
-        except BrokenPipeError:
-            # TODO: perhaps a way to detect this before
-            # constructing the whole response? lol..
-            #log('Connection ended abruptly', Ansi.LRED)
-            pass
+        try:
+            await loop.sock_sendall(self.client, resp)
+        except BrokenPipeError: # TODO: detect this earlier?
+            log('Connection closed by client.', Ansi.LRED)
 
 class Route:
     """A single endpoint within of domain."""
@@ -526,7 +363,7 @@ class Route:
         return f'{"/".join(self.methods)} {self.path}'
 
     def matches(self, path: str, method: str) -> bool:
-        """Check if a given `path` matches our method & condition."""
+        """Check if a given path & method match internals."""
         return method in self.methods and self.cond(path)
 
 class RouteMap:
@@ -537,7 +374,7 @@ class RouteMap:
 
     def route(self, path: Hostname_Types,
               methods: list[str] = ['GET']) -> Callable:
-        """Add a possible route to the server."""
+        """Add a given route to the routemap."""
         if not isinstance(path, (str, Iterable, re.Pattern)):
             raise TypeError('Route should be str | Iterable[str] | re.Pattern')
 
@@ -548,6 +385,7 @@ class RouteMap:
         return wrapper
 
     def find_route(self, path: str, method: str) -> Optional[Route]:
+        """Find the first route matching a given path & method."""
         for route in self.routes:
             if route.matches(path, method):
                 return route
@@ -575,14 +413,13 @@ class Domain(RouteMap):
         return self.hostname
 
     def matches(self, hostname: str) -> bool:
-        """Check if a hostname matches our condition."""
+        """Check if a given hostname matches our condition."""
         return self.cond(hostname)
 
     def add_map(self, rmap: RouteMap) -> None:
+        """Add an existing routemap to our domain."""
         self.routes |= rmap.routes
 
-# TODO: perhaps implement Server, or refactor
-# both into one with a kwarg for async? moyai
 class Server:
     """An asynchronous multi-domain server."""
     __slots__ = (
@@ -612,6 +449,7 @@ class Server:
         self._shutdown_reqs: int = 0
 
     def set_sock_mode(self, addr: Address) -> None:
+        """Determine the type of socket from the address given."""
         is_inet = type(addr) is tuple and len(addr) == 2 and \
                   type(addr[0]) is str and type(addr[1]) is int
 
@@ -622,21 +460,30 @@ class Server:
         else:
             raise ValueError('Invalid address.')
 
+    @property
+    def using_unix_socket(self) -> bool:
+        return self.sock_family is socket.AF_UNIX
+
     # Domain management
 
     def add_domain(self, domain: Domain) -> None:
+        """Add a domain to the server."""
         self.domains.add(domain)
 
     def add_domains(self, domains: set[Domain]) -> None:
+        """Add multiple domains to the server."""
         self.domains |= domains
 
     def remove_domain(self, domain: Domain) -> None:
+        """Remove a domain from the server."""
         self.domains.remove(domain)
 
     def remove_domains(self, domains: set[Domain]) -> None:
+        """Remove multiple domains from the server."""
         self.domains -= domains
 
     def find_domain(self, hostname: str):
+        """Find the first domain matching a given hostname."""
         for domain in self.domains:
             if domain.matches(hostname):
                 return domain
@@ -676,11 +523,31 @@ class Server:
                 resp = await route.handler(conn) or b''
 
         if resp is not None:
-            code, resp = resp if isinstance(resp, tuple) else (200, resp)
+            if isinstance(resp, tuple):
+                # code explicitly given
+                code, resp = resp
+            else:
+                # use 200 as default
+                code, resp = (200, resp)
 
-            if self.gzip > 0:
-                resp = gzip.compress(resp, self.gzip)
-                conn.add_resp_header('Content-Encoding: gzip')
+            # gzip responses larger than a single ethernet frame
+            # if it's enabled server-side and client supports it
+            if (
+                self.gzip > 0 and
+                'Accept-Encoding' in conn.headers and
+                'gzip' in conn.headers['Accept-Encoding'] and
+                len(resp) > 1500 # eth frame size (minus headers)
+            ):
+                # ignore files that're already compressed heavily
+                if not (
+                    'Content-Type' in conn.resp_headers and
+                    conn.resp_headers['Content-Type'] in (
+                        # TODO: surely there's more i should be ignoring
+                        'image/png', 'image/jpeg'
+                    )
+                ):
+                    resp = gzip.compress(resp, self.gzip)
+                    conn.resp_headers['Content-Encoding'] = 'gzip'
         else:
             code, resp = (404, b'Not Found.')
 
@@ -695,7 +562,7 @@ class Server:
         await (conn := Connection(client)).read()
 
         if 'Host' not in conn.headers:
-            # This should never happen?
+            log('Connection missing Host header.', Ansi.LRED)
             client.shutdown(socket.SHUT_RDWR)
             client.close()
             return
@@ -739,46 +606,6 @@ class Server:
                 pass
 
         if not loop:
-            self.set_sock_mode(addr)
-
-            async def runner() -> None:
-                log(f'=== Starting up {self.name} ===', Ansi.LMAGENTA)
-                loop = asyncio.get_running_loop()
-
-                # Call our before_serving coroutine,
-                # if theres one specified.
-                if self.before_serving:
-                    await self.before_serving()
-
-                # Start pending coroutine tasks.
-                if self.debug:
-                    log(f'-> Starting {len(self._task_coros)} tasks.', Ansi.LMAGENTA)
-                for coro in self._task_coros:
-                    self.tasks.add(loop.create_task(coro))
-
-                self._task_coros.clear()
-
-                # Setup socket & begin listening
-
-                if self.sock_family == socket.AF_UNIX:
-                    if os.path.exists(addr):
-                        os.remove(addr)
-
-                with socket.socket(self.sock_family) as sock:
-                    sock.bind(addr)
-
-                    if self.sock_family == socket.AF_UNIX:
-                        os.chmod(addr, 0o777)
-
-                    sock.listen(self.max_conns)
-                    sock.setblocking(False)
-
-                    log(f'-> Listening @ {addr}', AnsiRGB(0x00ff7f))
-
-                    while True:
-                        client, _ = await loop.sock_accept(sock)
-                        loop.create_task(self.handle(client))
-
             # no event loop running, we need to make our own
             if spec := importlib.util.find_spec('uvloop'):
                 # use uvloop if it's already installed
@@ -810,7 +637,7 @@ class Server:
                     return
 
                 if sig is signal.SIGINT:
-                    print('\33[2K', end='\r') # Remove '^C' from console
+                    print('\x1b[2K', end='\r') # Remove '^C' from console
 
                 log(f'-> Received {sig.name} signal, shutting down.', Ansi.LRED)
 
@@ -821,6 +648,11 @@ class Server:
                     log('-> Closing socket listener.', Ansi.LMAGENTA)
                 self._runner_task.cancel()
                 cancelled.append(self._runner_task)
+
+                # Remove socket file if unix
+                if self.using_unix_socket:
+                    if os.path.exists(addr):
+                        os.remove(addr)
 
                 # Shut down all running tasks
                 if self.tasks:
@@ -871,13 +703,57 @@ class Server:
             # not handling signals
             __should_restart = False
 
+        self.set_sock_mode(addr)
+
+        async def runner() -> None:
+            log(f'=== Starting up {self.name} ===', Ansi.LMAGENTA)
+            loop = asyncio.get_running_loop()
+
+            # Call our before_serving coroutine,
+            # if theres one specified.
+            if self.before_serving:
+                await self.before_serving()
+
+            # Start pending coroutine tasks.
+            if self.debug:
+                log(f'-> Starting {len(self._task_coros)} tasks.', Ansi.LMAGENTA)
+
+            for coro in self._task_coros:
+                self.tasks.add(loop.create_task(coro))
+
+            self._task_coros.clear()
+
+            # Setup socket & begin listening
+
+            if self.using_unix_socket:
+                if os.path.exists(addr):
+                    os.remove(addr)
+
+            with socket.socket(self.sock_family) as sock:
+                sock.bind(addr)
+
+                if self.using_unix_socket:
+                    os.chmod(addr, 0o777)
+
+                sock.listen(self.max_conns)
+                sock.setblocking(False)
+
+                log(f'-> Listening @ {addr}', AnsiRGB(0x00ff7f))
+
+                while True:
+                    client, _ = await loop.sock_accept(sock)
+                    loop.create_task(self.handle(client))
+
         try:
+            # TODO: assigning the task to variable like this
+            # changes how the exception handling works and creates
+            # quite a few problems; will need to rethink this.
             self._runner_task = loop.create_task(runner())
             loop.run_forever()
-        except: # exception raised in the users code?
+        except Exception as e:
             # I'm not sure what I should do here; probably shutdown,
             # but I'm going to think about it a bit more lol.
-            #loop.run_until_complete(shutdown(signal.SIGTERM, loop))
+            print(f"{e} raised in user's code? (report to cmyui#0425)")
             pass
         finally:
             log(f'=== Shut down {self.name} ===', Ansi.LMAGENTA)
