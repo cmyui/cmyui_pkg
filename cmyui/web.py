@@ -111,32 +111,32 @@ req_line_re = re.compile(
 class CaseInsensitiveDict(dict):
     """A dictionary with case insensitive keys."""
     def __init__(self, *args, **kwargs) -> None:
-        self.keystore = {}
+        self._keystore = {}
         d = dict(*args, **kwargs)
         for k in d.keys():
-            self.keystore[k.lower()] = k
+            self._keystore[k.lower()] = k
         return super().__init__(*args, **kwargs)
 
     def __setitem__(self, k, v) -> None:
-        self.keystore[k.lower()] = k
+        self._keystore[k.lower()] = k
         return super().__setitem__(k, v)
 
     def __getitem__(self, k) -> str:
         k_lower = k.lower()
-        if k_lower in self.keystore:
-            k = self.keystore[k_lower]
+        if k_lower in self._keystore:
+            k = self._keystore[k_lower]
         return super().__getitem__(k)
 
     def __contains__(self, k: str) -> bool:
         k_lower = k.lower()
-        if k_lower in self.keystore:
-            k = self.keystore[k_lower]
+        if k_lower in self._keystore:
+            k = self._keystore[k_lower]
         return super().__contains__(k)
 
     def get(self, k, failobj=None) -> Optional[str]:
         k_lower = k.lower()
-        if k_lower in self.keystore:
-            k = self.keystore[k_lower]
+        if k_lower in self._keystore:
+            k = self._keystore[k_lower]
         return super().get(k, failobj)
 
 class Connection:
@@ -426,7 +426,8 @@ class Server:
     __slots__ = (
         'name', 'max_conns', 'gzip', 'debug',
         'sock_family', 'before_serving', 'after_serving',
-        'domains', 'tasks', '_task_coros'
+        'domains', 'exceptions',
+        'tasks', '_task_coros'
     )
     def __init__(self, **kwargs) -> None:
         self.name = kwargs.get('name', 'Server')
@@ -438,10 +439,11 @@ class Server:
         self.before_serving: Optional[Callable] = None
         self.after_serving: Optional[Callable] = None
 
-        self.domains = set()
+        self.domains = kwargs.get('domains', set())
+        self.exceptions = 0 # num of exceptions handled
 
-        self.tasks = set()
-        self._task_coros = set() # coros not yet run
+        self.tasks = kwargs.get('tasks', set())
+        self._task_coros = kwargs.get('pending_tasks', set()) # coros not yet run
 
     def set_sock_mode(self, addr: Address) -> None:
         """Determine the type of socket from the address given."""
@@ -584,6 +586,18 @@ class Server:
         except socket.error:
             pass
 
+    def _default_cb(self, t: asyncio.Task) -> None:
+        """A simple callback for tasks to log & call exc handler."""
+        if not t.cancelled():
+            exc = t.exception()
+            if exc and not isinstance(exc, (SystemExit, KeyboardInterrupt)):
+                self.exceptions += 1
+
+                loop = asyncio.get_running_loop()
+                loop.default_exception_handler({
+                    'exception': exc
+                })
+
     def run(
         self, addr: Address,
         loop: Optional[asyncio.AbstractEventLoop] = None,
@@ -595,21 +609,18 @@ class Server:
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                pass
+                # no event loop running, we need to make our own
+                if spec := importlib.util.find_spec('uvloop'):
+                    # use uvloop if it's already installed
+                    # TODO: could make this configurable
+                    # incase people want to disable it
+                    # for their own use-cases?
+                    uvloop = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(uvloop)
 
-        if not loop:
-            # no event loop running, we need to make our own
-            if spec := importlib.util.find_spec('uvloop'):
-                # use uvloop if it's already installed
-                # TODO: could make this configurable
-                # incase people want to disable it
-                # for their own use-cases?
-                uvloop = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(uvloop)
+                    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-                asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-
-            loop = asyncio.new_event_loop()
+                loop = asyncio.new_event_loop()
 
         self.set_sock_mode(addr) # figure out family (INET4/UNIX)
 
@@ -626,17 +637,9 @@ class Server:
             if self.debug:
                 log(f'-> Starting {len(self._task_coros)} tasks.', Ansi.LMAGENTA)
 
-            def _task_cb(t: asyncio.Task) -> None:
-                if not t.cancelled():
-                    exc = t.exception()
-                    if exc and not isinstance(exc, (SystemExit, KeyboardInterrupt)):
-                        loop.default_exception_handler({
-                            'exception': exc
-                        })
-
             for coro in self._task_coros:
                 task = loop.create_task(coro)
-                task.add_done_callback(_task_cb) # XXX: never removed?
+                task.add_done_callback(self._default_cb) # XXX: never removed?
                 self.tasks.add(task)
 
             self._task_coros.clear()
@@ -679,7 +682,8 @@ class Server:
                     if reader is lsock:
                         # new connection received for server
                         client, _ = await loop.sock_accept(lsock)
-                        loop.create_task(self.handle(client))
+                        task = loop.create_task(self.handle(client))
+                        task.add_done_callback(self._default_cb)
                     elif reader is sig_rsock:
                         # received a blocked signal, shutdown
                         sig_received = signal.Signals(os.read(sig_rsock, 1)[0])
