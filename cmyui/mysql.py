@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 
 import aiomysql
-from typing import Sequence, Any
 from mysql.connector.pooling import MySQLConnectionPool
-from typing import Optional, AsyncGenerator
+from typing import Any
+from typing import AsyncGenerator
+from typing import Optional
+from typing import Sequence
+from typing import Union
 
 __all__ = (
     # Informational
@@ -16,7 +19,8 @@ __all__ = (
 )
 
 SQLParams = Sequence[Any]
-SQLResult = Optional[dict[str, Any]]
+DictSQLResult = Optional[dict[str, Any]]
+TupleSQLResult = Optional[tuple[Any, ...]]
 
 class SQLPool:
     __slots__ = ('conn',)
@@ -40,8 +44,12 @@ class SQLPool:
         cnx.close()
         return res
 
-    def fetch(self, query: str, params: SQLParams = [],
-              _all: bool = False, _dict: bool = True) -> SQLResult:
+    def fetch(
+        self, query: str,
+        params: SQLParams = [],
+       _all: bool = False,
+       _dict: bool = True
+    ) -> Union[DictSQLResult, TupleSQLResult]:
         if not (cnx := self.conn.get_connection()):
             raise Exception('MySQL: Failed to retrieve a worker.')
 
@@ -55,8 +63,11 @@ class SQLPool:
         cnx.close()
         return res
 
-    def fetchall(self, query: str, params: SQLParams = [],
-                 _dict: bool = True ) -> tuple[SQLResult, ...]:
+    def fetchall(
+        self, query: str,
+        params: SQLParams = [],
+        _dict: bool = True
+    ) -> tuple[Union[DictSQLResult, TupleSQLResult], ...]:
         return self.fetch(query, params, _all=True, _dict=_dict)
 
 class AsyncSQLPool:
@@ -81,9 +92,12 @@ class AsyncSQLPool:
 
                 return cur.lastrowid
 
-    async def fetch(self, query: str, params: SQLParams = [],
-                    _all: bool = False, _dict: bool = True
-                   ) -> SQLResult:
+    async def fetch(
+        self, query: str,
+        params: SQLParams = [],
+        _all: bool = False,
+        _dict: bool = True
+    ) -> Union[DictSQLResult, TupleSQLResult]:
         """Acquire a connection & execute query with params & fetch resultset(s)."""
         cursor_type = aiomysql.DictCursor if _dict \
                  else aiomysql.Cursor
@@ -93,12 +107,17 @@ class AsyncSQLPool:
                 await cur.execute(query, params)
                 return await (cur.fetchall if _all else cur.fetchone)()
 
-    async def fetchall(self, query: str, params: SQLParams = [],
-                       _dict: bool = True) -> tuple[SQLResult, ...]:
+    async def fetchall(
+        self, query: str, params: SQLParams = [],
+        _dict: bool = True
+    ) -> tuple[Union[DictSQLResult, TupleSQLResult], ...]:
         return await self.fetch(query, params, _all=True, _dict=_dict)
 
-    async def iterall(self, query: str, params: SQLParams = [],
-                      _dict: bool = True) -> AsyncGenerator[SQLResult, None]:
+    async def iterall(
+        self, query: str,
+        params: SQLParams = [],
+        _dict: bool = True
+    ) -> AsyncGenerator[Union[DictSQLResult, TupleSQLResult], None]:
         """Like fetchall, but as an async generator."""
         cursor_type = aiomysql.DictCursor if _dict \
                  else aiomysql.Cursor
