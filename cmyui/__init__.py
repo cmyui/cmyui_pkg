@@ -15,14 +15,14 @@ use them immediately in my own code.
 
 Source: https://github.com/cmyui/cmyui_pkg
 
-:copyright: (c) 2020 cmyui
+:copyright: (c) 2021 cmyui
 :license: MIT, see LICENSE for details.
 """
 
 __title__ = 'cmyui'
 __author__ = 'cmyui'
 __license__ = 'MIT'
-__copyright__ = 'Copyright 2020 cmyui'
+__copyright__ = 'Copyright 2021 cmyui'
 __version__ = '1.7.4'
 
 from .logging import *

@@ -5,7 +5,7 @@ Wrappers for multiple types of osu! related files.
 
 Source: https://github.com/cmyui/cmyui_pkg
 
-:copyright: (c) 2020 cmyui
+:copyright: (c) 2021 cmyui
 :license: MIT, see LICENSE for details.
 """
 
