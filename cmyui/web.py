@@ -345,20 +345,22 @@ class Route:
     __slots__ = ('path', 'methods', 'handler', 'cond')
     def __init__(self, path: Union[str, Iterable, re.Pattern],
                  methods: list[str], handler: Callable) -> None:
-        self.path = path # for __repr__
         self.methods = methods
         self.handler = handler
 
-        # do these checks once rather
-        # than for every conn.. lol
         if isinstance(path, str):
+            self.path = path
             self.cond = lambda k: k == path
         elif isinstance(path, Iterable):
-            self.cond = lambda k: k in path
-            self.path = str(path)
+            if isinstance(next(iter(path)), re.Pattern):
+                self.cond = lambda k: any([p.match(k) for p in path])
+                self.path = str(type(path)([f'~{p.pattern}' for p in path]))
+            else:
+                self.cond = lambda k: k in path
+                self.path = str(path)
         elif isinstance(path, re.Pattern):
             self.cond = lambda k: path.match(k)
-            self.path = f'~{self.path.pattern}' # ~ for rgx
+            self.path = f'~{path.pattern}' # ~ for rgx
 
     def __repr__(self) -> str:
         return f'{"/".join(self.methods)} {self.path}'
