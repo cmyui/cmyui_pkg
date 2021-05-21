@@ -60,6 +60,8 @@ class AnsiRGB:
 
 Ansi_T = Union[Ansi, AnsiRGB]
 
+sys.stdout.reconfigure(encoding='utf-8') # set utf8 encoding for stdout
+
 stdout_write = sys.stdout.write
 stdout_flush = sys.stdout.flush
 _gray = repr(Ansi.GRAY)
