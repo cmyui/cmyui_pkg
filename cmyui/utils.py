@@ -1,25 +1,22 @@
 # -*- coding: utf-8 -*-
 
+import random
+import string
 from collections import namedtuple
-from functools import wraps
-from typing import Callable
+from datetime import datetime
+from datetime import tzinfo
 from enum import IntEnum
+from functools import wraps
 from time import time_ns
-from string import ascii_letters, digits
-from random import choice
-from datetime import (
-    datetime as dt,
-    timezone as tz,
-    timedelta as td
-)
+from typing import Callable
+from typing import Optional
 
 __all__ = ('get_timestamp', '_isdecimal', 'rstring',
            'async_cache', 'TimeScale', 'timef')
 
 ts_fmt = ('%I:%M:%S%p', '%d/%m/%Y %I:%M:%S%p')
-tz_est = tz(td(hours = -5), 'EST') # TODO: fix for edt switch lol
-def get_timestamp(full: bool = False) -> str:
-    return f'{dt.now(tz = tz_est):{ts_fmt[full]}}'
+def get_timestamp(full: bool = False, tz: Optional[tzinfo] = None) -> str:
+    return f'{datetime.now(tz=tz):{ts_fmt[full]}}'
 
 def _isdecimal(s: str, _float: bool = False,
                _negative: bool = False) -> None:
@@ -31,9 +28,9 @@ def _isdecimal(s: str, _float: bool = False,
 
     return s.isdecimal()
 
-__chars = ascii_letters + digits
+__chars = string.ascii_letters + string.digits
 def rstring(l: int, seq: str = __chars) -> str:
-    return ''.join((choice(seq) for _ in range(l)))
+    return ''.join((random.choice(seq) for _ in range(l)))
 
 _CacheStats = namedtuple('CacheStats', ['hits', 'misses'])
 

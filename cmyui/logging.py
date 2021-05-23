@@ -3,8 +3,12 @@
 __all__ = ('Ansi', 'AnsiRGB', 'printc', 'log')
 
 import sys
-from typing import Union, Optional, overload
+from datetime import tzinfo
 from enum import IntEnum
+from typing import Union
+from typing import Optional
+from typing import overload
+from zoneinfo import ZoneInfo
 
 from .utils import get_timestamp
 
@@ -62,14 +66,18 @@ Ansi_T = Union[Ansi, AnsiRGB]
 
 stdout_write = sys.stdout.write
 stdout_flush = sys.stdout.flush
-_gray = repr(Ansi.GRAY)
-_reset = repr(Ansi.RESET)
-
 def printc(s: str, col: Ansi_T, end: str = '\n') -> None:
     """Print a string, in a specified ansi colour."""
     stdout_write(f'{col!r}{s}{Ansi.RESET!r}{end}')
     stdout_flush()
 
+_log_tz = ZoneInfo('America/Toronto') # default
+def set_timezone(tz: tzinfo) -> None:
+    global _log_tz
+    _log_tz = tz
+
+_gray = repr(Ansi.GRAY)
+_reset = repr(Ansi.RESET)
 def log(msg: str, col: Optional[Ansi_T] = None,
         fd: Optional[str] = None, end: str = '\n') -> None:
     """\
@@ -79,7 +87,7 @@ def log(msg: str, col: Optional[Ansi_T] = None,
     well by passing the filepath with the `fd` parameter.
     """
 
-    ts_short = get_timestamp(full=False)
+    ts_short = get_timestamp(full=False, tz=_log_tz)
 
     if col:
         stdout_write(f'{_gray}[{ts_short}] {col!r}{msg}{_reset}{end}')
@@ -91,4 +99,4 @@ def log(msg: str, col: Optional[Ansi_T] = None,
     if fd:
         # log simple ascii output to fd.
         with open(fd, 'a+') as f:
-            f.write(f'[{get_timestamp(full=True)}] {msg}\n')
+            f.write(f'[{get_timestamp(full=True, tz=_log_tz)}] {msg}\n')
