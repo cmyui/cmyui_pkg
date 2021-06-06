@@ -16,8 +16,8 @@ __all__ = (
     'TupleSQLResult',
 
     # Functional
-    'AsyncSQLPool'
-    'SQLPool',
+    'AsyncSQLPool',
+    'SQLPool'
 )
 
 SQLParams = Sequence[Any]

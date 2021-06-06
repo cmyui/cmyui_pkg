@@ -140,9 +140,10 @@ def timef(f: Callable):
 
 def rainbow_color_stops(
     n: int = 10,
+    lum: float = 0.5,
     end: float = 2 / 3
 ) -> list[tuple[int, int, int]]:
     # https://stackoverflow.com/a/58811633
     return [(r * 255, g * 255, b * 255)
-            for r, g, b in [colorsys.hls_to_rgb(end * i / (n - 1), 0.5, 1)
+            for r, g, b in [colorsys.hls_to_rgb(end * i / (n - 1), lum, 1)
                             for i in range(n)]]
