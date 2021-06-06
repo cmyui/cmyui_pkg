@@ -1,9 +1,12 @@
 # -*- coding: utf-8 -*-
 
-from typing import Any, Optional, Union
+import time
+from typing import Any
+from typing import Optional
+from typing import Union
+
 import aiohttp
 import orjson
-import time
 
 __all__ = ()
 

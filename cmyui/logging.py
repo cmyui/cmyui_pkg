@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 
-__all__ = ('Ansi', 'AnsiRGB', 'printc', 'log')
-
 import sys
 from datetime import tzinfo
 from enum import IntEnum
@@ -11,6 +9,8 @@ from typing import overload
 from zoneinfo import ZoneInfo
 
 from .utils import get_timestamp
+
+__all__ = ('Ansi', 'AnsiRGB', 'printc', 'set_timezone', 'log')
 
 class Ansi(IntEnum):
     # Default colours

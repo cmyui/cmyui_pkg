@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 
-__all__ = ('Version',)
-
 import functools
+
+__all__ = ('Version',)
 
 @functools.total_ordering
 class Version:

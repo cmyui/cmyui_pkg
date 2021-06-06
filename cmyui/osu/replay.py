@@ -3,8 +3,10 @@
 import os
 import lzma
 import struct
-from functools import cached_property, partial
-from enum import IntFlag, unique
+from functools import cached_property
+from functools import partial
+from enum import IntFlag
+from enum import unique
 from typing import Optional
 
 from cmyui import utils

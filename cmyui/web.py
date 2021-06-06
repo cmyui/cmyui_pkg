@@ -97,12 +97,11 @@ def ratelimit(period: int, max_count: int,
         return wraps(f)(wrapper)
     return decorate
 
-# Will be (host: str, port: int) if INET,
-# or (sock_dir: str) if UNIX.
+# (host, port) for inet; sockpath for unix
 Address = Union[tuple[str, int], str]
 Hostname_Types = Union[str, Iterable[str], re.Pattern]
 
-req_line_re = re.compile(
+REQUEST_LINE_RGX = re.compile(
     r'^(?P<cmd>GET|HEAD|POST|PUT|DELETE|PATCH|OPTIONS) '
     r'(?P<path>/[^? ]*)(?P<args>\?[^ ]+)? ' # cursed?
     r'HTTP/(?P<httpver>1\.0|1\.1|2\.0|3\.0)$'
@@ -181,7 +180,7 @@ class Connection:
         req_line = data[:delim]
 
         # Make sure request line is properly formatted.
-        if not (m := req_line_re.match(req_line)):
+        if not (m := REQUEST_LINE_RGX.match(req_line)):
             log(f'Invalid request line ({req_line})', Ansi.LRED)
             return
 
@@ -449,8 +448,12 @@ class Server:
 
     def set_sock_mode(self, addr: Address) -> None:
         """Determine the type of socket from the address given."""
-        is_inet = type(addr) is tuple and len(addr) == 2 and \
-                  type(addr[0]) is str and type(addr[1]) is int
+        is_inet = (
+            isinstance(addr, tuple) and
+            len(addr) == 2 and
+            isinstance(addr[0], str) and
+            isinstance(addr[1], int)
+        )
 
         if is_inet:
             self.sock_family = socket.AF_INET
@@ -535,7 +538,7 @@ class Server:
                 self.gzip > 0 and
                 'Accept-Encoding' in conn.headers and
                 'gzip' in conn.headers['Accept-Encoding'] and
-                len(resp) > 1500 # eth frame size (minus headers)
+                len(resp) > 1500 # ethernet frame size (minus headers)
             ):
                 # ignore files that're already compressed heavily
                 if not (

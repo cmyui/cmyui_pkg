@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 
+from typing import Optional
+
 import orjson
 import aiohttp
-from typing import Optional
 
 __all__ = ('Footer', 'Image', 'Thumbnail',
            'Video', 'Provider', 'Author',

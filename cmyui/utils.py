@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+import colorsys
 import random
 import string
 from collections import namedtuple
@@ -12,7 +13,8 @@ from typing import Callable
 from typing import Optional
 
 __all__ = ('get_timestamp', '_isdecimal', 'rstring',
-           'async_cache', 'TimeScale', 'timef')
+           'async_cache', 'TimeScale', 'timef',
+           'rainbow_color_stops')
 
 ts_fmt = ('%I:%M:%S%p', '%d/%m/%Y %I:%M:%S%p')
 def get_timestamp(full: bool = False, tz: Optional[tzinfo] = None) -> str:
@@ -135,3 +137,12 @@ def timef(f: Callable):
     wrapper.calls = calls # maybe temp?
     wrapper.average = average
     return wrapper
+
+def rainbow_color_stops(
+    n: int = 10,
+    end: float = 2 / 3
+) -> list[tuple[int, int, int]]:
+    # https://stackoverflow.com/a/58811633
+    return [(r * 255, g * 255, b * 255)
+            for r, g, b in [colorsys.hls_to_rgb(end * i / (n - 1), 0.5, 1)
+                            for i in range(n)]]
