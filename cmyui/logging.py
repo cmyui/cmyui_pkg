@@ -3,6 +3,8 @@
 import sys
 from datetime import tzinfo
 from enum import IntEnum
+from functools import cache
+from functools import lru_cache
 from typing import Union
 from typing import Optional
 from typing import overload
@@ -35,6 +37,7 @@ class Ansi(IntEnum):
 
     RESET = 0
 
+    @cache
     def __repr__(self) -> str:
         return f'\x1b[{self.value}m'
 
@@ -59,6 +62,7 @@ class AnsiRGB:
         else:
             raise ValueError('Incorrect params for AnsiRGB.')
 
+    @lru_cache(maxsize=64)
     def __repr__(self) -> str:
         return f'\x1b[38;2;{self.r};{self.g};{self.b}m'
 
@@ -66,9 +70,13 @@ Ansi_T = Union[Ansi, AnsiRGB]
 
 stdout_write = sys.stdout.write
 stdout_flush = sys.stdout.flush
+
+_gray = repr(Ansi.GRAY)
+_reset = repr(Ansi.RESET)
+
 def printc(s: str, col: Ansi_T, end: str = '\n') -> None:
     """Print a string, in a specified ansi colour."""
-    stdout_write(f'{col!r}{s}{Ansi.RESET!r}{end}')
+    stdout_write(f'{col!r}{s}{_reset}{end}')
     stdout_flush()
 
 _log_tz = ZoneInfo('America/Toronto') # default
@@ -76,8 +84,6 @@ def set_timezone(tz: tzinfo) -> None:
     global _log_tz
     _log_tz = tz
 
-_gray = repr(Ansi.GRAY)
-_reset = repr(Ansi.RESET)
 def log(msg: str, col: Optional[Ansi_T] = None,
         fd: Optional[str] = None, end: str = '\n') -> None:
     """\
