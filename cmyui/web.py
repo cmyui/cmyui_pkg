@@ -14,9 +14,9 @@ import select
 import signal
 import socket
 import sys
-import time
 from functools import wraps
 from time import perf_counter as clock
+from time import perf_counter_ns as clock_ns
 from typing import Any
 from typing import Callable
 from typing import Coroutine
@@ -28,6 +28,7 @@ from .logging import Ansi
 from .logging import AnsiRGB
 from .logging import log
 from .logging import printc
+from .utils import magnitude_fmt_time
 
 __all__ = (
     'Address',
@@ -144,12 +145,14 @@ class Connection:
 
         # Request params
         'headers', 'body', 'cmd',
-        'path', 'httpver',
+        'path', 'raw_path', 'httpver',
 
         'args', 'multipart_args', 'files',
 
+        '_buf',
+
         # Response params
-        'resp_code', 'resp_headers',
+        'resp_code', 'resp_headers'
     )
 
     def __init__(self, client: socket.socket) -> None:
@@ -157,9 +160,10 @@ class Connection:
 
         # Request params
         self.headers = CaseInsensitiveDict()
-        self.body: Optional[bytearray] = None
-        self.cmd = ''
-        self.path = ''
+        self.body: Optional[memoryview] = None
+        self.cmd = None
+        self.path = None
+        self.raw_path = None
         self.httpver = 0.0
 
         self.args = {}
@@ -171,146 +175,101 @@ class Connection:
         self.resp_code = 200
         self.resp_headers = {}
 
+        self._buf = bytearray()
+
     """ Request methods """
 
-    async def parse_headers(self, data: str) -> None:
-        # Retrieve the http request line.
-        delim = data.find('\r\n')
+    def _parse_urlencoded(self, data: bytes) -> None:
+        for a_pair in data.split('&'):
+            a_key, a_val = a_pair.split('=', 1)
+            self.args[a_key] = a_val
 
-        req_line = data[:delim]
+    def _parse_headers(self, data: str) -> None:
+        """Parse the http headers from the internal body."""
+        # split up headers into http line & header lines
+        http_line, *header_lines = data.split('\r\n')
 
-        # Make sure request line is properly formatted.
-        if not (m := REQUEST_LINE_RGX.match(req_line)):
-            log(f'Invalid request line ({req_line})', Ansi.LRED)
-            return
+        # parse http line
+        self.cmd, self.raw_path, _httpver = http_line.split(' ', 2)
+        self.httpver = float(_httpver[5:])
 
-        # cmd & httpver are fine as-is
-        self.cmd = m['cmd']
-        self.httpver = float(m['httpver'])
+        # parse urlencoded args from raw_path
+        if (args_offs := self.raw_path.find('?')) != -1:
+            self._parse_urlencoded(self.raw_path[args_offs + 1:])
+            self.path = self.raw_path[:args_offs]
+        else:
+            self.path = self.raw_path
 
-        # There may be params in the path, they
-        # will be removed once the body is read.
-        self.path = m['path']
+        # parse header lines
+        for h_key, h_val in [h.split(': ', 1) for h in header_lines]:
+            self.headers[h_key] = h_val
 
-        # Parse the headers into our class.
-        for header_line in data[delim + 2:].split('\r\n'):
-            if len(split := header_line.split(':', 1)) != 2:
-                log(f'Invalid header ({header_line})', Ansi.LRED)
-                continue
+    def _parse_multipart(self) -> None:
+        """Parse multipart/form-data from the internal body."""
+        boundary = self.headers['Content-Type'].split('boundary=', 1)[1]
 
-            # normalize header capitalization
-            # https://github.com/cmyui/cmyui_pkg/issues/3
-            self.headers[split[0].title()] = split[1].lstrip()
+        for param in self.body.tobytes().split(f'--{boundary}'.encode())[1:-1]:
+            headers, _body = param.split(b'\r\n\r\n', 1)
+            body = _body[:-2] # remove \r\n
 
-        if m['args']: # parse args from url path
-            for param_line in m['args'][1:].split('&'):
-                if len(param := param_line.split('=', 1)) != 2:
-                    log(f'Invalid path arg ({param_line})', Ansi.LRED)
-                    continue
+            # find Content-Disposition
+            for header in headers.decode().split('\r\n')[1:]:
+                h_key, h_val = header.split(': ', 1)
 
-                self.args[param[0]] = param[1]
+                if h_key == 'Content-Disposition':
+                    # find 'name' or 'filename' attribute
+                    attrs = {}
+                    for attr in h_val.split('; ')[1:]:
+                        a_key, _a_val = attr.split('=', 1)
+                        attrs[a_key] = _a_val[1:-1] # remove ""
 
-    async def parse_multipart(self) -> None:
-        # retrieve the multipart boundary from the headers.
-        # It will need to be encoded, since the body is as well.
-        boundary = self.headers['Content-Type'].split('=', 1)[1].encode()
+                    if 'filename' in attrs:
+                        a_val = attrs['filename']
+                        self.files[a_val] = body
+                        break
+                    elif 'name' in attrs:
+                        a_val = attrs['name']
+                        self.multipart_args[a_val] = body.decode()
+                        break
+                    break
 
-        params = self.body.split(b'--' + boundary)[1:]
-
-        # perhaps `if b'\r\n\r\n` in p` would be better?
-        for param in (p for p in params if p != b'--\r\n'):
-            _headers, _body = param.split(b'\r\n\r\n', 1)
-
-            headers = {}
-            for header in _headers.decode().split('\r\n')[1:]:
-                if len(split := header.split(':', 1)) != 2:
-                    log(f'Invalid multipart header ({header})', Ansi.LRED)
-                    continue
-
-                headers[split[0]] = split[1].lstrip()
-
-            if 'Content-Disposition' not in headers:
-                log('Invalid multipart headers (no content-disposition)', Ansi.LRED)
-                continue
-
-            attrs = {}
-            for attr in headers['Content-Disposition'].split(';')[1:]:
-                if len(split := attr.split('=', 1)) != 2:
-                    log(f'Invalid multipart attr ({attr})', Ansi.LRED)
-                    continue
-
-                attrs[split[0].lstrip()] = split[1][1:-1]
-
-            body = _body[:-2]
-
-            # multipart args should be decoded,
-            # but files should stay as bytes.
-            if 'filename' in attrs:
-                self.files[attrs['filename']] = body
-            else:
-                self.multipart_args[attrs['name']] = body.decode()
-
-    async def read(self) -> bytes:
+    async def parse(self) -> bytes:
+        """Receive & parse the http request from the client."""
         loop = asyncio.get_running_loop()
 
-        # create a temp buffer, and read until we find
-        # b'\r\n\r\n', meaning we've read all the headers.
-        temp_buf = b''
+        while (body_delim_offs := self._buf.find(b'\r\n\r\n')) == -1:
+            self._buf += await loop.sock_recv(self.client, 1024)
 
-        while b'\r\n\r\n' not in temp_buf:
-            # read for headers in 512 byte chunks, this will
-            # usually only have to read once, sometimes twice.
-            temp_buf += await loop.sock_recv(self.client, 512)
-
-        delim = temp_buf.find(b'\r\n\r\n')
-
-        # we've read all the headers, parse them
-        await self.parse_headers(temp_buf[:delim].decode())
+        # we have all headers, parse them
+        self._parse_headers(self._buf[:body_delim_offs].decode())
 
         if 'Content-Length' not in self.headers:
-            # there was either a problem parsing,
-            # or the request only contains headers
+            # the request has no body to read.
             return
 
-        # advance our temp buffer to the beginning of the body.
-        temp_buf = temp_buf[delim + 4:]
-
-        # since we were reading from the socket in chunks, we
-        # almost definitely overshot and have some of the body
-        # in our temp buffer. calculate how much we have.
-        already_read = len(temp_buf)
-
-        # get the length of the body, and check whether we've
-        # already have the entirety within in our temp buffer.
         content_length = int(self.headers['Content-Length'])
+        to_read = ((body_delim_offs + 4) + content_length) - len(self._buf)
 
-        if already_read != content_length:
-            # there is still data to read; now that we know
-            # the length remaining, we can allocate a static
-            # buffer and read into a view for high efficiency.
-            to_read = content_length - already_read
-            buf = bytearray(to_read)
-            view = memoryview(buf)
+        if to_read:
+            # there's more to read; preallocate the space
+            # required and read into it from the socket.
+            self._buf += b"\x00" * to_read # is this rly the fastest way?
+            with memoryview(self._buf)[-to_read:] as read_view:
+                while to_read:
+                    nbytes = await loop.sock_recv_into(self.client, read_view)
+                    read_view = read_view[nbytes:]
+                    to_read -= nbytes
 
-            while to_read:
-                nbytes = await loop.sock_recv_into(self.client, view)
-                view = view[nbytes:]
-                to_read -= nbytes
-
-            # save data to our connection object as immutable bytes.
-            self.body = temp_buf + bytes(buf)
-        else:
-            # we already have all the data.
-            self.body = temp_buf
+        # all data read from the socket, store a readonly view of the body.
+        self.body = memoryview(self._buf)[body_delim_offs + 4:].toreadonly()
 
         if self.cmd == 'POST':
-            # if we're parsing a POST request, there may
-            # still be arguments passed as multipart/form-data.
-
             if 'Content-Type' in self.headers:
                 content_type = self.headers['Content-Type']
                 if content_type.startswith('multipart/form-data'):
-                    await self.parse_multipart()
+                    self._parse_multipart()
+                elif content_type == 'application/x-www-form-urlencoded':
+                    self._parse_urlencoded(self.body.obj) # hmmm
 
     """ Response methods """
 
@@ -558,10 +517,15 @@ class Server:
 
     async def handle(self, client: socket.socket) -> None:
         """Handle a single client socket from the server."""
-        start_time = time.time_ns()
+        if self.debug:
+            t1 = clock_ns()
 
-        # Read & parse connection.
-        await (conn := Connection(client)).read()
+        # read & parse connection
+        conn = Connection(client)
+        await conn.parse()
+
+        if self.debug:
+            t2 = clock_ns()
 
         if 'Host' not in conn.headers:
             log('Connection missing Host header.', Ansi.LRED)
@@ -569,12 +533,16 @@ class Server:
             client.close()
             return
 
-        # Dispatch the handler.
+        # dispatch the connection
+        # to the appropriate handler
         code = await self.dispatch(conn)
 
         if self.debug:
-            # Event complete, stop timing, log result and cleanup.
-            time_taken = (time.time_ns() - start_time) / 1e6
+            # event complete, stop timing, log result and cleanup
+            t3 = clock_ns()
+
+            t2_t1 = magnitude_fmt_time(t2 - t1)
+            t3_t2 = magnitude_fmt_time(t3 - t2)
 
             col = (Ansi.LGREEN  if 200 <= code < 300 else
                    Ansi.LYELLOW if 300 <= code < 400 else
@@ -583,7 +551,8 @@ class Server:
             uri = f'{conn.headers["Host"]}{conn.path}'
 
             log(f'[{conn.cmd}] {code} {uri}', col, end=' | ')
-            printc(f'Elapsed: {time_taken:.2f}ms', Ansi.LBLUE)
+            printc(f'Parsing: {t2_t1}', Ansi.LBLUE, end=' | ')
+            printc(f'Handling: {t3_t2}', Ansi.LBLUE)
 
         try:
             client.shutdown(socket.SHUT_RDWR)
