@@ -11,10 +11,11 @@ from functools import wraps
 from time import time_ns
 from typing import Callable
 from typing import Optional
+from typing import Union
 
 __all__ = ('get_timestamp', '_isdecimal', 'rstring',
            'async_cache', 'TimeScale', 'timef',
-           'rainbow_color_stops')
+           'rainbow_color_stops', 'magnitude_fmt_time')
 
 ts_fmt = ('%I:%M:%S%p', '%d/%m/%Y %I:%M:%S%p')
 def get_timestamp(full: bool = False, tz: Optional[tzinfo] = None) -> str:
@@ -147,3 +148,14 @@ def rainbow_color_stops(
     return [(r * 255, g * 255, b * 255)
             for r, g, b in [colorsys.hls_to_rgb(end * i / (n - 1), lum, 1)
                             for i in range(n)]]
+
+# TODO: genericize this to metric all units?
+TIME_ORDER_SUFFIXES = ['nsec', 'μsec', 'msec', 'sec']
+def magnitude_fmt_time(
+    t: Union[int, float] # in nanosec
+) -> str:
+    for suffix in TIME_ORDER_SUFFIXES:
+        if t < 1000:
+            break
+        t /= 1000
+    return f'{t:.2f} {suffix}'
