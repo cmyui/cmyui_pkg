@@ -11,7 +11,7 @@ from typing import Optional
 
 from cmyui import utils
 
-__all__ = ('TimingPoint', 'SampleSet', 'HitSample', 'ObjectType',
+__all__ = ('TimingPoint', 'SampleSet', 'HitSample',
            'HitObject', 'HitCircle', 'Slider', 'Spinner', 'ManiaHold',
            'Beatmap', 'CurveType', 'HitSound', 'Colour', 'OverlayPosition',
            'Event', 'Background', 'Video', 'Break')
@@ -53,6 +53,9 @@ through the map and achieve a perfect score.. it would be
 useful for scorev2 detection on gulag too.. could finally
 be rid of the scorev2 bugginess :o
 """
+
+# TODO: some of the classmethod usage in this is pretty nasty,
+# seems like i didn't fully understand it at the time of writing.
 
 # who knows why, but different sections
 # of the beatmap file use different
@@ -147,6 +150,18 @@ class HitSample:
             filename=hs_split[4]
         )
 
+HIT_CIRCLE = 1 << 0
+SLIDER = 1 << 1
+NEW_COMBO = 1 << 2
+SPINNER = 1 << 3
+
+SKIP_ONE = 1 << 4
+SKIP_TWO = 1 << 5
+SKIP_THREE = 1 << 6
+
+MANIA_HOLD = 1 << 7
+
+""" # slow :(
 @unique
 class ObjectType(IntFlag):
     HIT_CIRCLE = 1 << 0
@@ -163,6 +178,7 @@ class ObjectType(IntFlag):
     SKIP_THREE = 1 << 6
 
     MANIA_HOLD = 1 << 7
+"""
 
 @unique
 class HitSound(IntFlag):
@@ -176,8 +192,10 @@ class HitSound(IntFlag):
 
 class HitObject:
     def __init__(
-        self, x: int, y: int, time: int,
-        hit_sound: HitSound, hit_sample: HitSample
+        self,
+        x: int, y: int, time: int,
+        hit_sound: HitSound,
+        hit_sample: Optional[HitSample] = None
     ) -> None:
         self.x = x
         self.y = y
@@ -191,8 +209,8 @@ class HitObject:
         self.hit_sound = hit_sound
         self.hit_sample = hit_sample
 
-    @classmethod
-    def from_str(_, s: str) -> 'HitObject':
+    @staticmethod
+    def from_str(s: str) -> 'HitObject':
         if len(args := s.split(',', 5)) != 6:
             return
 
@@ -202,32 +220,23 @@ class HitObject:
 
         # parse common items from hit object
         # the first 5 params of any hitobject
-        kwargs = {
-            'x': int(args[0]),
-            'y': int(args[1]),
-            'time': int(args[2]),
-            'hit_sound': HitSound(int(args[4]))
-        }
-
-        type = ObjectType(int(args[3]))
+        type = int(args[3])
 
         # hit sample not read yet, it may be at the
         # end of the args list depending on the type.
 
         cls = None
 
-        if type & ObjectType.HIT_CIRCLE:
+        if type & HIT_CIRCLE:
             cls = HitCircle
-        elif type & ObjectType.SLIDER:
+        elif type & SLIDER:
             cls = Slider
-        elif type & ObjectType.SPINNER:
+        elif type & SPINNER:
             cls = Spinner
-        elif type & ObjectType.MANIA_HOLD:
+        elif type & MANIA_HOLD:
             cls = ManiaHold
         else:
             return
-
-        print(cls, _)
 
         return cls.from_str(
             s=args[5],
@@ -261,14 +270,14 @@ class CurveType(IntEnum):
 
 class Slider(HitObject):
     def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
+        self.curve_type: CurveType = kwargs.pop('curve_type')
+        self.curve_points: list[str] = kwargs.pop('curve_points')
+        self.slides: int = kwargs.pop('slides')
+        self.length: float = kwargs.pop('length')
+        self.edge_sounds: list[int] = kwargs.pop('edge_sounds', [])
+        self.edge_sets: list[list[int, int]] = kwargs.pop('edge_sets', [])
 
-        self.curve_type: Optional[CurveType] = kwargs.get('curve_type')
-        self.curve_points: Optional[list[str]] = kwargs.get('curve_points')
-        self.slides: Optional[int] = kwargs.get('slides')
-        self.length: Optional[float] = kwargs.get('length')
-        self.edge_sounds: list[int] = kwargs.get('edge_sounds')
-        self.edge_sets: Optional[list[list[int, int]]] = kwargs.get('edge_sets')
+        super().__init__(**kwargs)
 
     @classmethod
     def from_str(cls, s: str, **kwargs):
@@ -299,10 +308,10 @@ class Slider(HitObject):
         return cls(**kwargs)
 
 class Spinner(HitObject):
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
+    def __init__(self, end_time: int, **kwargs) -> None:
+        self.end_time = end_time
 
-        self.end_time: Optional[int] = kwargs.get('end_time')
+        super().__init__(**kwargs)
 
     @classmethod
     def from_str(cls, s, **kwargs):
@@ -312,18 +321,16 @@ class Spinner(HitObject):
         if not split[0].isdecimal():
             return
 
-        kwargs |= {'end_time': int(split[0])}
-
         if split[1] != '0:0:0:0:':
             kwargs |= {'hit_sample': HitSample.from_str(split[1])}
 
-        return cls(**kwargs)
+        return cls(end_time=int(split[0]), **kwargs)
 
 class ManiaHold(HitObject):
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
+    def __init__(self, end_time: int, **kwargs) -> None:
+        self.end_time = end_time
 
-        self.end_time: Optional[int] = kwargs.get('end_time')
+        super().__init__(**kwargs)
 
         # `self.x` determines the column the hold will be in;
         # it can be determined with floor(x * columnCount / 512)
@@ -338,18 +345,16 @@ class ManiaHold(HitObject):
         if not split[0].isdecimal():
             return
 
-        kwargs |= {'end_time': int(split[0])}
-
         if split[1] != '0:0:0:0:':
             kwargs |= {'hit_sample': HitSample.from_str(split[1])}
 
-        return cls(**kwargs)
+        return cls(end_time=int(split[0]), **kwargs)
 
 class Colour:
-    def __init__(self) -> None:
-        self.r: Optional[int] = None
-        self.g: Optional[int] = None
-        self.b: Optional[int] = None
+    def __init__(self, r: int, g: int, b: int) -> None:
+        self.r = r
+        self.g = g
+        self.b = b
 
     @classmethod
     def from_str(cls, s: str):
@@ -359,11 +364,11 @@ class Colour:
         if not all(x.isdecimal() for x in split):
             return
 
-        colour = cls()
-        colour.r = int(split[0])
-        colour.g = int(split[1])
-        colour.b = int(split[2])
-        return colour
+        return cls(
+            r=int(split[0]),
+            g=int(split[1]),
+            b=int(split[2])
+        )
 
 @unique
 class OverlayPosition(IntEnum):
@@ -372,11 +377,11 @@ class OverlayPosition(IntEnum):
     Above = 2
 
 class Event:
-    def __init__(self, **kwargs) -> None:
-        self.start_time: Optional[int] = kwargs.get('start_time', None)
+    def __init__(self, start_time: int) -> None:
+        self.start_time = start_time
 
-    @classmethod
-    def from_str(_, s: str):
+    @staticmethod
+    def from_str(s: str):
         if len(split := s.split(',', 2)) != 3:
             return
 
@@ -398,12 +403,17 @@ class Event:
         return cls.from_str(split[2], start_time=int(split[1]))
 
 class Background(Event):
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
+    def __init__(
+        self, filename: str,
+        x_offset: Optional[int] = None,
+        y_offset: Optional[int] = None,
+        **kwargs
+    ) -> None:
+        self.filename = filename
+        self.x_offset = x_offset
+        self.y_offset = y_offset
 
-        self.filename: Optional[str] = kwargs.get('filename', None)
-        self.x_offset: Optional[int] = kwargs.get('x_offset', None)
-        self.y_offset: Optional[int] = kwargs.get('y_offset', None)
+        super().__init__(**kwargs)
 
     @classmethod
     def from_str(cls, s: str, **kwargs):
@@ -417,7 +427,6 @@ class Background(Event):
 
             kwargs |= {'x_offset': int(x_off),
                        'y_offset': int(y_off)}
-
         elif lsplit != 1:
             raise Exception('Invalid arg count for a background.')
 
@@ -432,18 +441,18 @@ class Background(Event):
 Video = type('Video', Background.__bases__, dict(Background.__dict__))
 
 class Break(Event):
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, end_time: int, **kwargs) -> None:
+        self.end_time = end_time
+
         super().__init__(**kwargs)
 
-        self.end_time: Optional[int] = kwargs.get('end_time', None)
 
     @classmethod
     def from_str(cls, s: str, **kwargs):
         if not s.isdecimal():
             return
 
-        kwargs |= {'end_time': int(s)}
-        return cls(**kwargs)
+        return cls(end_time=int(s), **kwargs)
 
 # TODO: storyboards?
 
@@ -666,8 +675,8 @@ class Beatmap:
                 self.widescreen_storyboard = val == '1'
             elif key == 'SamplesMatchPlaybackRate':
                 self.samples_match_playback_rate = val == '1'
-            else:
-                raise Exception(f'Invalid [General] key {key}')
+            #else:
+            #    raise Exception(f'Invalid [General] key {key}')
 
         self._offset += g_end
 
@@ -704,8 +713,8 @@ class Beatmap:
                     continue
 
                 self.timeline_zoom = float(val)
-            else:
-                raise Exception(f'Invalid [Editor] key {key}')
+            #else:
+            #    raise Exception(f'Invalid [Editor] key {key}')
 
         self._offset += e_end
 
@@ -742,8 +751,8 @@ class Beatmap:
                     continue
 
                 self.set_id = int(val)
-            else:
-                raise Exception(f'Invalid [Metadata] key {key}')
+            #else:
+            #    raise Exception(f'Invalid [Metadata] key {key}')
 
         self._offset += m_end
 
@@ -770,8 +779,8 @@ class Beatmap:
                 self.slider_multiplier = float(val)
             elif key == 'SliderTickRate':
                 self.slider_tick_rate = float(val)
-            else:
-                raise Exception(f'Invalid [Difficulty] key {key}')
+            #else:
+            #    raise Exception(f'Invalid [Difficulty] key {key}')
 
         self._offset += d_end
 
