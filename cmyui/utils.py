@@ -15,7 +15,7 @@ from typing import Union
 
 __all__ = ('get_timestamp', '_isdecimal', 'rstring',
            'async_cache', 'TimeScale', 'timef',
-           'rainbow_color_stops', 'MetricOrders',
+           'rainbow_color_stops',
            'magnitude_fmt_time')
 
 ts_fmt = ('%I:%M:%S%p', '%d/%m/%Y %I:%M:%S%p')
