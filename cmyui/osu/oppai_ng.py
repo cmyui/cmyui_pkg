@@ -1,13 +1,11 @@
 # -*- coding: utf-8 -*-
 
-# a thin wrapper around oppai-ng's c89 static library
-
 import ctypes
 import functools
 from types import TracebackType
+from typing import Optional
 from typing import Type
 from typing import TYPE_CHECKING
-from typing import Optional
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -15,7 +13,7 @@ if TYPE_CHECKING:
 __all__ = ('OppaiWrapper',)
 
 class OppaiWrapper:
-    """Lightweight wrapper around oppai-ng's C library."""
+    """Lightweight wrapper around franc[e]sco's c89 oppai-ng library."""
     __slots__  = ('static_lib', '_ez')
 
     def __init__(self, lib_path: str):
@@ -33,6 +31,200 @@ class OppaiWrapper:
         self._ez = 0
         return False
 
+    # main api
+
+    def calculate(self, osu_file_path: 'Path') -> None: # ezpp()
+        osu_file_path_bytestr = str(osu_file_path).encode()
+        self.static_lib.ezpp(self._ez, osu_file_path_bytestr)
+
+    def calculate_data(self, osu_file_contents: bytes) -> None: # ezpp_data()
+        self.static_lib.ezpp_data(self._ez, osu_file_contents, len(osu_file_contents))
+
+    def calculate_dup(self, osu_file_path: 'Path') -> None: # ezpp_dup()
+        osu_file_path_bytestr = str(osu_file_path).encode()
+        self.static_lib.ezpp_dup(self._ez, osu_file_path_bytestr)
+
+    def calculate_data_dup(self, osu_file_contents: bytes) -> None: # ezpp_data_dup()
+        self.static_lib.ezpp_data_dup(self._ez, osu_file_contents, len(osu_file_contents))
+
+    # get stuff
+
+    def get_pp(self) -> float:
+        return self.static_lib.ezpp_pp(self._ez)
+
+    def get_sr(self) -> float:
+        return self.static_lib.ezpp_stars(self._ez)
+
+    def get_mode(self) -> int:
+        return self.static_lib.ezpp_mode(self._ez)
+
+    def get_combo(self) -> int:
+        return self.static_lib.ezpp_combo(self._ez)
+
+    def get_max_combo(self) -> int:
+        return self.static_lib.ezpp_max_combo(self._ez)
+
+    def get_mods(self) -> int:
+        return self.static_lib.ezpp_mods(self._ez)
+
+    def get_score_version(self) -> int:
+        return self.static_lib.ezpp_score_version(self._ez)
+
+    def get_aim_stars(self) -> float:
+        return self.static_lib.ezpp_aim_stars(self._ez)
+
+    def get_speed_stars(self) -> float:
+        return self.static_lib.ezpp_speed_stars(self._ez)
+
+    def get_aim_pp(self) -> float:
+        return self.static_lib.ezpp_aim_pp(self._ez)
+
+    def get_speed_pp(self) -> float:
+        return self.static_lib.ezpp_speed_pp(self._ez)
+
+    def get_accuracy_percent(self) -> float:
+        return self.static_lib.ezpp_accuracy_percent(self._ez)
+
+    def get_n300(self) -> int:
+        return self.static_lib.ezpp_n300(self._ez)
+
+    def get_n100(self) -> int:
+        return self.static_lib.ezpp_n100(self._ez)
+
+    def get_n50(self) -> int:
+        return self.static_lib.ezpp_n50(self._ez)
+
+    def get_nmiss(self) -> int:
+        return self.static_lib.ezpp_nmiss(self._ez)
+
+    def get_title(self) -> bytes:
+        return self.static_lib.ezpp_title(self._ez)
+
+    def get_title_unicode(self) -> bytes:
+        return self.static_lib.ezpp_title_unicode(self._ez)
+
+    def get_artist(self) -> bytes:
+        return self.static_lib.ezpp_artist(self._ez)
+
+    def get_artist_unicode(self) -> bytes:
+        return self.static_lib.ezpp_artist_unicode(self._ez)
+
+    def get_creator(self) -> bytes:
+        return self.static_lib.ezpp_creator(self._ez)
+
+    def get_version(self) -> bytes:
+        return self.static_lib.ezpp_version(self._ez)
+
+    def get_ncircles(self) -> int:
+        return self.static_lib.ezpp_ncircles(self._ez)
+
+    def get_nsliders(self) -> int:
+        return self.static_lib.ezpp_nsliders(self._ez)
+
+    def get_nspinners(self) -> int:
+        return self.static_lib.ezpp_nspinners(self._ez)
+
+    def get_nobjects(self) -> int:
+        return self.static_lib.ezpp_nobjects(self._ez)
+
+    def get_ar(self) -> float:
+        return self.static_lib.ezpp_ar(self._ez)
+
+    def get_cs(self) -> float:
+        return self.static_lib.ezpp_cs(self._ez)
+
+    def get_od(self) -> float:
+        return self.static_lib.ezpp_od(self._ez)
+
+    def get_hp(self) -> float:
+        return self.static_lib.ezpp_hp(self._ez)
+
+    def get_odms(self) -> float:
+        return self.static_lib.ezpp_odms(self._ez)
+
+    def get_autocalc(self) -> int:
+        return self.static_lib.ezpp_autocalc(self._ez)
+
+    def get_time_at(self, i: int) -> float:
+        return self.static_lib.ezpp_time_at(self._ez, i)
+
+    def get_strain_at(self, i: int, difficulty_type: int) -> float:
+        return self.static_lib.ezpp_strain_at(self._ez, i, difficulty_type)
+
+    def get_ntiming_points(self) -> int:
+        return self.static_lib.ezpp_ntiming_points(self._ez)
+
+    def get_timing_time(self, i: int) -> float:
+        return self.static_lib.ezpp_timing_time(self._ez, i)
+
+    def get_timing_ms_per_beat(self, i: int) -> float:
+        return self.static_lib.ezpp_timing_ms_per_beat(self._ez, i)
+
+    def get_timing_change(self, i: int) -> int:
+        return self.static_lib.ezpp_timing_change(self._ez, i)
+
+    # set stuff
+
+    def set_aim_stars(self, aim_stars: float) -> None:
+        self.static_lib.ezpp_set_aim_stars(self._ez, aim_stars)
+
+    def set_speed_stars(self, speed_stars: float) -> None:
+        self.static_lib.ezpp_set_speed_stars(self._ez, speed_stars)
+
+    def set_base_ar(self, ar: float) -> None:
+        self.static_lib.ezpp_set_base_ar(self._ez, ar)
+
+    def set_base_od(self, od: float) -> None:
+        self.static_lib.ezpp_set_base_od(self._ez, od)
+
+    def set_base_cs(self, cs: float) -> None:
+        # NOTE: will force map re-parse
+        self.static_lib.ezpp_set_base_cs(self._ez, cs)
+
+    def set_base_hp(self, hp: float) -> None:
+        self.static_lib.ezpp_set_base_hp(self._ez, hp)
+
+    def set_mode_override(self, mode: int) -> None:
+        # NOTE: will force map re-parse
+        self.static_lib.ezpp_set_mode_override(self._ez, mode)
+
+    def set_mode(self, mode: int) -> None:
+        self.static_lib.ezpp_set_mode(self._ez, mode)
+
+    def set_mods(self, mods: int) -> None:
+        # NOTE: will force map re-parse for
+        #       hr, ez, dt, nc and ht.
+        self.static_lib.ezpp_set_mods(self._ez, mods)
+
+    def set_combo(self, combo: int) -> None:
+        self.static_lib.ezpp_set_combo(self._ez, combo)
+
+    def set_nmiss(self, nmiss: int) -> None:
+        # NOTE: will force map re-parse &
+        #       clobber accuracy_percent
+        # (i think the map re-parse can be removed,
+        #  and will talk to franc[e]sco about it)
+        self.static_lib.ezpp_set_nmiss(self._ez, nmiss)
+
+    def set_score_version(self, score_version: int) -> None:
+        self.static_lib.ezpp_set_score_version(self._ez, score_version)
+
+    def set_accuracy_percent(self, accuracy: float) -> None:
+        self.static_lib.ezpp_set_accuracy_percent(self._ez, accuracy)
+
+    def set_accuracy(self, n100: int, n50: int) -> None:
+        self.static_lib.ezpp_set_accuracy(self._ez, n100, n50)
+
+    def set_end(self, end: int) -> None:
+        # NOTE: will force map re-parse &
+        #       clobber accuracy_percent
+        self.static_lib.ezpp_set_end(self._ez, end)
+
+    def set_end_time(self, end_time: float) -> None:
+        # NOTE: will force map re-parse &
+        #       clobber accuracy_percent
+        self.static_lib.ezpp_set_end_time(self._ez, end_time)
+
     @staticmethod
     @functools.cache
     def load_static_library(lib_path: str) -> ctypes.CDLL:
@@ -41,6 +233,7 @@ class OppaiWrapper:
         static_lib = ctypes.cdll.LoadLibrary(lib_path)
 
         # main api
+
         ezpp_new = static_lib.ezpp_new
         ezpp_new.argtypes = ()
         ezpp_new.restype = ctypes.c_int
@@ -65,6 +258,7 @@ class OppaiWrapper:
         ezpp_data_dup.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int)
 
         # getting internals
+
         ezpp_pp = static_lib.ezpp_pp
         ezpp_pp.argtypes = (ctypes.c_int,)
         ezpp_pp.restype = ctypes.c_float
@@ -199,7 +393,7 @@ class OppaiWrapper:
 
         ezpp_time_at = static_lib.ezpp_time_at
         ezpp_time_at.argtypes = (ctypes.c_int, ctypes.c_int)
-        ezpp_time_at.restype = ctypes.c_int
+        ezpp_time_at.restype = ctypes.c_float
 
         ezpp_strain_at = static_lib.ezpp_strain_at
         ezpp_strain_at.argtypes = (ctypes.c_int, ctypes.c_int, ctypes.c_int)
@@ -226,6 +420,7 @@ class OppaiWrapper:
         ezpp_timing_change.restype = ctypes.c_int
 
         # setting internals
+
         ezpp_set_aim_stars = static_lib.ezpp_set_aim_stars
         ezpp_set_aim_stars.argtypes = (ctypes.c_int, ctypes.c_float)
         ezpp_set_aim_stars.restype = ctypes.c_void_p
@@ -266,11 +461,15 @@ class OppaiWrapper:
         ezpp_set_autocalc.argtypes = (ctypes.c_int, ctypes.c_int)
         ezpp_set_autocalc.restype = ctypes.c_void_p
 
+        # forces map re-parse for map-changing mods
+        # (this is an implementation detail of oppai-ng)
+
         ezpp_set_mods = static_lib.ezpp_set_mods
         ezpp_set_mods.argtypes = (ctypes.c_int, ctypes.c_int)
         ezpp_set_mods.restype = ctypes.c_void_p
 
-        # (clobber_setter)
+        # forces map re-parse
+
         ezpp_set_base_cs = static_lib.ezpp_set_base_cs
         ezpp_set_base_cs.argtypes = (ctypes.c_int, ctypes.c_float)
         ezpp_set_base_cs.restype = ctypes.c_void_p
@@ -279,7 +478,8 @@ class OppaiWrapper:
         ezpp_set_mode_override.argtypes = (ctypes.c_int, ctypes.c_int)
         ezpp_set_mode_override.restype = ctypes.c_void_p
 
-        # (acc_clobber_setter)
+        # forces map re-parse & clobbers acc
+
         ezpp_set_nmiss = static_lib.ezpp_set_nmiss
         ezpp_set_nmiss.argtypes = (ctypes.c_int, ctypes.c_int)
         ezpp_set_nmiss.restype = ctypes.c_void_p
@@ -297,41 +497,3 @@ class OppaiWrapper:
         ezpp_set_accuracy.restype = ctypes.c_void_p
 
         return static_lib
-
-    # get stuff
-
-    def get_pp(self) -> float:
-        return self.static_lib.ezpp_pp(self._ez)
-
-    def get_sr(self) -> float:
-        return self.static_lib.ezpp_stars(self._ez)
-
-    # set stuff
-
-    def set_mode(self, mode: int) -> None:
-        self.static_lib.ezpp_set_mode(self._ez, mode)
-
-    # set_mode_override?
-
-    def set_combo(self, combo: int) -> None:
-        self.static_lib.ezpp_set_combo(self._ez, combo)
-
-    def set_accuracy_percent(self, acc: float) -> None:
-        self.static_lib.ezpp_set_accuracy_percent(self._ez, acc)
-
-    def set_mods(self, mods: int) -> None:
-        self.static_lib.ezpp_set_mods(self._ez, mods)
-
-    def set_nmiss(self, nmiss: int) -> None:
-        self.static_lib.ezpp_set_nmiss(self._ez, nmiss)
-
-    # misc
-
-    def calculate(self, osu_file_path: 'Path') -> None: # .osu file path
-        # XXX: bytes(Path) implementation is
-        #      rather cursed and does the same
-        osu_file_path_bytestr = str(osu_file_path).encode()
-        self.static_lib.ezpp(self._ez, osu_file_path_bytestr)
-
-    def calculate_data(self, osu_file_contents: bytes) -> None: # .osu file data
-        self.static_lib.ezpp_data(self._ez, osu_file_contents, len(osu_file_contents))
