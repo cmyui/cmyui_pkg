@@ -10,5 +10,5 @@ Source: https://github.com/cmyui/cmyui_pkg
 """
 
 from .beatmap import *
+from .oppai_ng import *
 from .replay import *
-from .api import *
