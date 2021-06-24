@@ -15,7 +15,8 @@ from typing import Union
 
 __all__ = ('get_timestamp', '_isdecimal', 'rstring',
            'async_cache', 'TimeScale', 'timef',
-           'rainbow_color_stops', 'magnitude_fmt_time')
+           'rainbow_color_stops', 'MetricOrders',
+           'magnitude_fmt_time')
 
 ts_fmt = ('%I:%M:%S%p', '%d/%m/%Y %I:%M:%S%p')
 def get_timestamp(full: bool = False, tz: Optional[tzinfo] = None) -> str:
@@ -149,13 +150,44 @@ def rainbow_color_stops(
             for r, g, b in [colorsys.hls_to_rgb(end * i / (n - 1), lum, 1)
                             for i in range(n)]]
 
-# TODO: genericize this to metric all units?
-TIME_ORDER_SUFFIXES = ['nsec', 'μsec', 'msec', 'sec']
-def magnitude_fmt_time(
-    t: Union[int, float] # in nanosec
+class MetricOrders(IntEnum):
+    Yocto = -24
+    Zepto = -21
+    Atto = -18
+    Femto = -15
+    Pico = -12
+    Nano = -9
+    Micro = -6
+    Milli = -3
+    Centi = -2
+    Deci = -1
+    Single = 0
+    Deca = 1
+    Hecto = 2
+    Kilo = 3
+    Mega = 6
+    Giga = 9
+    Tera = 12
+    Peta = 15
+    Exa = 18
+    Zetta = 21
+    Yotta = 24
+
+def _order_fmt(
+    suffixes: list[str]
 ) -> str:
-    for suffix in TIME_ORDER_SUFFIXES:
-        if t < 1000:
-            break
-        t /= 1000
-    return f'{t:.2f} {suffix}'
+    def inner(t: Union[int, float],
+              current_order: MetricOrders) -> str:
+        for suffix in suffixes[current_order:]:
+            if t > 1000:
+                t /= 1000
+            elif t < 1:
+                t *= 1000
+            else:
+                break
+        return f'{t:.2f} {suffix}'
+    return inner
+
+magnitude_fmt_time = _order_fmt(suffixes=['nsec', 'μsec', 'msec', 'sec'])
+
+magnitude_fmt_time()

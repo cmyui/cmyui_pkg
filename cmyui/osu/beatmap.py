@@ -1,9 +1,14 @@
 # -*- coding: utf-8 -*-
 
 import os
-from enum import IntEnum, IntFlag, unique
-from functools import cached_property, partial
-from typing import Callable, Optional
+from enum import IntEnum
+from enum import IntFlag
+from enum import unique
+from functools import cached_property
+from functools import partial
+from typing import Callable
+from typing import Optional
+
 from cmyui import utils
 
 __all__ = ('TimingPoint', 'SampleSet', 'HitSample', 'ObjectType',
@@ -61,22 +66,26 @@ _separators = {
 }
 
 class TimingPoint:
-    def __init__(self) -> None:
-        self.time: Optional[int] = None
-        self.beat_length: Optional[float] = None
-        self.meter: Optional[int] = None
-        self.sample_set: Optional[int] = None
-        self.sample_index: Optional[int] = None
-        self.volume: Optional[int] = None
-        self.uninherited: Optional[bool] = None
-        self.effects: Optional[int] = None
+    def __init__(
+        self, time: int, beat_length: float,
+        meter: int, sample_set: int, sample_index: int,
+        volume: int, uninherited: bool, effects: int
+    ) -> None:
+        self.time = time
+        self.beat_length = beat_length
+        self.meter = meter
+        self.sample_set = sample_set
+        self.sample_index = sample_index
+        self.volume = volume
+        self.uninherited = uninherited
+        self.effects = effects
 
     @cached_property
     def bpm(self) -> int:
         return 1 / self.beat_length * 1000 * 60
 
     @classmethod
-    def from_str(cls, s: str):
+    def from_str(cls, s: str) -> 'TimingPoint':
         if len(tp_split := s.split(',')) != 8:
             return
 
@@ -90,17 +99,16 @@ class TimingPoint:
         if not all(isfloat_n(x) for x in tp_split):
             return
 
-        tp = cls()
-        tp.time = int(tp_split[0])
-        tp.beat_length = float(tp_split[1])
-        tp.meter = int(tp_split[2])
-        tp.sample_set = int(tp_split[3])
-        tp.sample_index = int(tp_split[4])
-        tp.volume = int(tp_split[5])
-        tp.uninherited = tp_split[6] == '1'
-        tp.effects = int(tp_split[7])
-
-        return tp
+        return cls(
+            time=int(tp_split[0]),
+            beat_length=float(tp_split[1]),
+            meter=int(tp_split[2]),
+            sample_set=int(tp_split[3]),
+            sample_index=int(tp_split[4]),
+            volume=int(tp_split[5]),
+            uninherited=tp_split[6] == '1',
+            effects=int(tp_split[7])
+        )
 
 @unique
 class SampleSet(IntEnum):
@@ -113,29 +121,31 @@ class SampleSet(IntEnum):
         return self.name.lower()
 
 class HitSample:
-    def __init__(self) -> None:
-        self.normal_set: Optional[SampleSet] = None
-        self.addition_set: Optional[SampleSet] = None
-        self.index: Optional[int] = None
-        self.volume: Optional[int] = None
-        self.filename: Optional[str] = None
+    def __init__(
+        self, normal_set: SampleSet, addition_set: SampleSet,
+        index: int, volume: int, filename: str
+    ) -> None:
+        self.normal_set = normal_set
+        self.addition_set = addition_set
+        self.index = index
+        self.volume = volume
+        self.filename = filename
 
     @classmethod
-    def from_str(cls, s: str):
+    def from_str(cls, s: str) -> 'HitSample':
         if len(hs_split := s.split(':')) != 5:
             return
 
         if not all(x.isdecimal() for x in hs_split[:-1]):
             return
 
-        hs = cls()
-        hs.normal_set = SampleSet(int(hs_split[0]))
-        hs.addition_set = SampleSet(int(hs_split[1]))
-        hs.index = int(hs_split[2])
-        hs.volume = int(hs_split[3])
-        hs.filename = hs_split[4]
-
-        return hs
+        return cls(
+            normal_set=SampleSet(int(hs_split[0])),
+            addition_set=SampleSet(int(hs_split[1])),
+            index=int(hs_split[2]),
+            volume=int(hs_split[3]),
+            filename=hs_split[4]
+        )
 
 @unique
 class ObjectType(IntFlag):
@@ -165,21 +175,24 @@ class HitSound(IntFlag):
         return self.name.lower()
 
 class HitObject:
-    def __init__(self, **kwargs) -> None:
-        self.x: Optional[int] = kwargs.get('x')
-        self.y: Optional[int] = kwargs.get('y')
-        self.time: Optional[int] = kwargs.get('time')
+    def __init__(
+        self, x: int, y: int, time: int,
+        hit_sound: HitSound, hit_sample: HitSample
+    ) -> None:
+        self.x = x
+        self.y = y
+        self.time = time
 
         # very closely related
         # XXX: i could actually refactor these to
         # be in a single class (and may), but i think
         # it might confuse people who are reading osu!'s
         # implementation to make sense of it? idk man lol
-        self.hit_sound: Optional[HitSound] = kwargs.get('hit_sound')
-        self.hit_sample: Optional[HitSample] = kwargs.get('hit_sample')
+        self.hit_sound = hit_sound
+        self.hit_sample = hit_sample
 
     @classmethod
-    def from_str(_, s: str):
+    def from_str(_, s: str) -> 'HitObject':
         if len(args := s.split(',', 5)) != 6:
             return
 
@@ -211,18 +224,25 @@ class HitObject:
             cls = Spinner
         elif type & ObjectType.MANIA_HOLD:
             cls = ManiaHold
-
-        if not cls:
+        else:
             return
 
-        return cls.from_str(args[5], **kwargs) # pass rest of the args
+        print(cls, _)
+
+        return cls.from_str(
+            s=args[5],
+            x=int(args[0]),
+            y=int(args[1]),
+            time=int(args[2]),
+            hit_sound=HitSound(int(args[4]))
+        ) # pass rest of the args
 
 class HitCircle(HitObject):
     # hitcircle is simple, nothing extra,
     # so we don't have to write constructor
 
     @classmethod
-    def from_str(cls, s, **kwargs):
+    def from_str(cls, s: str, **kwargs):
         if s != '0:0:0:0:':
             kwargs |= {'hit_sample': HitSample.from_str(s)}
 
@@ -251,7 +271,7 @@ class Slider(HitObject):
         self.edge_sets: Optional[list[list[int, int]]] = kwargs.get('edge_sets')
 
     @classmethod
-    def from_str(cls, s, **kwargs):
+    def from_str(cls, s: str, **kwargs):
         if len(split := s.split(',')) < 3:
             return
 
