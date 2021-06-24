@@ -332,3 +332,6 @@ class OppaiWrapper:
         #      rather cursed and does the same
         osu_file_path_bytestr = str(osu_file_path).encode()
         self.static_lib.ezpp(self._ez, osu_file_path_bytestr)
+
+    def calculate_data(self, osu_file_contents: bytes) -> None: # .osu file data
+        self.static_lib.ezpp_data(self._ez, osu_file_contents, len(osu_file_contents))
