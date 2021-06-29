@@ -649,7 +649,10 @@ class Beatmap:
             elif key == 'SamplesMatchPlaybackRate':
                 self.samples_match_playback_rate = val == '1'
             else:
-                logging.log(f'Unknown [General] key {key}', logging.Ansi.LYELLOW)
+                logging.log(
+                    f'Unknown [General] key {key}',
+                    logging.Ansi.LYELLOW
+                )
 
         self._offset += end_of_section
 
@@ -676,7 +679,10 @@ class Beatmap:
                 if utils._isdecimal(val, _float=True):
                     self.timeline_zoom = float(val)
             else:
-                logging.log(f'Unknown [Editor] key {key}', logging.Ansi.LYELLOW)
+                logging.log(
+                    f'Unknown [Editor] key {key}',
+                    logging.Ansi.LYELLOW
+                )
 
         self._offset += e_end
 
@@ -709,7 +715,10 @@ class Beatmap:
                 if val.isdecimal():
                     self.set_id = int(val)
             else:
-                logging.log(f'Unknown [Metadata] key {key}', logging.Ansi.LYELLOW)
+                logging.log(
+                    f'Unknown [Metadata] key {key}',
+                    logging.Ansi.LYELLOW
+                )
 
         self._offset += m_end
 
@@ -734,7 +743,10 @@ class Beatmap:
                 elif key == 'SliderTickRate':
                     self.slider_tick_rate = float(val)
                 else:
-                    logging.log(f'Unknown [Difficulty] key {key}', logging.Ansi.LYELLOW)
+                    logging.log(
+                        f'Unknown [Difficulty] key {key}',
+                        logging.Ansi.LYELLOW
+                    )
 
         self._offset += d_end
 
@@ -790,7 +802,7 @@ class Beatmap:
         for line in self.data[:cl_end].splitlines():
             key, val = line.split(' : ', maxsplit=1)
 
-            if (colour := Colour.from_str(val)):
+            if colour := Colour.from_str(val):
                 # add to beatmap's colours
                 self.colours[key] = colour
 
@@ -818,7 +830,7 @@ if __name__ == '__main__':
 
     import time
     st = time.time_ns()
-    bmap = Beatmap.from_file('b.osu')
+    bmap = Beatmap.from_file('tstmts.osu')
     elapsed = utils.magnitude_fmt_time(time.time_ns()-st)
     print(f'Parsed {bmap} in {elapsed}.')
 
