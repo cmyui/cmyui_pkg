@@ -16,7 +16,7 @@ class OppaiWrapper:
     """Lightweight wrapper around franc[e]sco's c89 oppai-ng library."""
     __slots__  = ('static_lib', '_ez')
 
-    def __init__(self, lib_path: str):
+    def __init__(self, lib_path: str) -> None:
         self.static_lib = self.load_static_library(lib_path)
         self._ez = 0
 
@@ -24,14 +24,29 @@ class OppaiWrapper:
         self._ez = self.static_lib.ezpp_new()
         return self
 
-    def __exit__(self, exc_type: Optional[Type[BaseException]],
-                 exc_value: Optional[BaseException],
-                 traceback: Optional[TracebackType]) -> bool:
+    def __exit__(
+        self, exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType]
+    ) -> bool:
         self.static_lib.ezpp_free(self._ez)
         self._ez = 0
         return False
 
     # main api
+
+    def configure(
+        self, mode: int = 0,
+        acc: float = 0, mods: int = 0,
+        combo: int = 0, nmiss: int = 0
+    ) -> None:
+        """Convenience wrapper so you don't have to
+           think about the order for clobbering stuff"""
+        if mode: self.set_mode(mode)
+        if mods: self.set_mods(mods)
+        if nmiss: self.set_nmiss(nmiss)
+        if combo: self.set_combo(combo)
+        if acc: self.set_accuracy_percent(acc) # n50, n100s?
 
     def calculate(self, osu_file_path: 'Path') -> None: # ezpp()
         osu_file_path_bytestr = str(osu_file_path).encode()
@@ -164,6 +179,12 @@ class OppaiWrapper:
         return self.static_lib.ezpp_timing_change(self._ez, i)
 
     # set stuff
+    # NOTE: the order you call these in matters due to
+    # memory clobbering (for example setting misscount
+    # will reset the internal accuracy_percent). they're
+    # all documented here, but you can use the configure()
+    # method in the main api above if you don't want to
+    # think about this level of abstraction.
 
     def set_aim_stars(self, aim_stars: float) -> None:
         self.static_lib.ezpp_set_aim_stars(self._ez, aim_stars)
