@@ -4,15 +4,11 @@ import os
 import lzma
 import struct
 from functools import cached_property
-from functools import partial
-from enum import IntFlag
-from enum import unique
 from typing import Optional
 
-from cmyui import utils
 from cmyui.osu.mods import Mods
 
-__all__ = ('Keys', 'ReplayFrame', 'Replay')
+__all__ = ('ReplayFrame', 'Replay')
 
 """\
 a simple osu! replay parser, for all your replay parsing needs..
@@ -40,20 +36,20 @@ i'm sure it'll get cleaned up more over time, basically
 wrote it with the same style as the beatmap parser.
 """
 
-@unique
-class Keys(IntFlag):
-    M1    = 1 << 0
-    M2    = 1 << 1
-    K1    = 1 << 2
-    K2    = 1 << 3
-    Smoke = 1 << 4
+KEYS_M1 = 1 << 0
+KEYS_M2 = 1 << 1
+KEYS_K1 = 1 << 2
+KEYS_K2 = 1 << 3
+KEYS_SMOKE = 1 << 4
 
 class ReplayFrame:
-    def __init__(self, **kwargs) -> None:
-        self.delta: Optional[int] = kwargs.get('delta', None)
-        self.x: Optional[float] = kwargs.get('x', None)
-        self.y: Optional[float] = kwargs.get('y', None)
-        self.keys: Optional[Keys] = kwargs.get('keys', None)
+    __slots__ = ('delta', 'x', 'y', 'keys', '__dict__')
+
+    def __init__(self, delta: int, x: float, y: float, keys: int) -> None:
+        self.delta = delta
+        self.x = x
+        self.y = y
+        self.keys = keys
 
     @cached_property
     def as_bytes(self) -> bytes:
@@ -70,30 +66,14 @@ class ReplayFrame:
         fmt_dict = self.__dict__ | {'keys': int(self.keys)}
         return '{delta}|{x}|{y}|{keys}'.format(**fmt_dict)
 
-    @classmethod
-    def from_str(cls, s: str):
-        if len(split := s.split('|')) != 4:
-            return
-
-        isdecimal_n = partial(utils._isdecimal, _negative=True)
-        isfloat_n = partial(isdecimal_n, _float=True)
-
-        if not all(isdecimal_n(x) for x in (split[0], split[3])):
-            return
-
-        if not all (isfloat_n(x) for x in (split[1], split[2])):
-            return
-
-        kwargs = {
-            'delta': int(split[0]),
-            'x': float(split[1]),
-            'y': float(split[2]),
-            'keys': Keys(int(split[3]))
-        }
-
-        return cls(**kwargs)
-
 class Replay:
+    __slots__ = (
+        'mode', 'osu_version', 'map_md5', 'player_name', 'replay_md5',
+        'n300', 'n100', 'n50', 'ngeki', 'nkatu', 'nmiss',
+        'score', 'max_combo', 'perfect', 'mods', 'life_graph',
+        'timestamp', 'score_id', 'mod_extras', 'seed', 'frames',
+        '_data', '_offset'
+    )
     def __init__(self) -> None:
         """ replay headers"""
         self.mode: Optional[int] = None # gm
@@ -164,7 +144,12 @@ class Replay:
         self.max_combo = self._read_short()
         self.perfect = self._read_byte()
         self.mods = Mods(self._read_int())
-        self.life_graph = self._read_string() # TODO
+
+        self.life_graph = []
+        for entry in self._read_string()[:-1].split(','):
+            split = entry.split('|', maxsplit=1)
+            self.life_graph.append((int(split[0]), float(split[1])))
+
         self.timestamp = self._read_long()
 
         """ parse lzma """
@@ -241,12 +226,18 @@ class Replay:
         actions = [x for x in lzma_data.decode().split(',') if x]
 
         for action in actions[:-1]:
-            frame = ReplayFrame.from_str(action)
+            if len(split := action.split('|')) != 4:
+                return
 
-            if not frame:
+            try:
+                frames.append(ReplayFrame(
+                    delta=int(split[0]),
+                    x=float(split[1]),
+                    y=float(split[2]),
+                    keys=int(split[3])
+                ))
+            except:
                 continue
-
-            frames.append(frame)
 
         self.seed = int(actions[-1].rsplit('|', 1)[1])
         return frames
