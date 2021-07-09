@@ -4,6 +4,7 @@ import os
 from enum import IntEnum
 from enum import IntFlag
 from enum import unique
+from functools import cache
 from functools import cached_property
 from functools import partial
 from typing import Callable
@@ -19,48 +20,23 @@ __all__ = ('TimingPoint', 'SampleSet', 'HitSample',
            'Beatmap', 'CurveType', 'HitSound', 'Colour', 'OverlayPosition',
            'Event', 'Background', 'Video', 'Break')
 
-"""\
-a (rather slow) complete osu! beatmap parser, with basic safety.
+"""A rather complete beatmap parser for osu, with basic safety.
 
-this is somewhat older code that's been revamped a few times,
-some of this should probably be written into c to speed things up.
-it has complete coverage of modern .osu beatmap files, with an
-api under active development alongside https://github.com/cmyui/gulag.
+This implementation is pretty slow since it's pure python,
+but it's easy to use and is more complete than most i've seen.
 
-Basic usage:
-```
-  b = Beatmap.from_file('1234567.osu')
-  if not b: # file not found
-    ...
-
-  # now you have basically everything
-  # you can think of from a beatmap.
-
-  # most complex structures are classes,
-  # with many attributes within them..
-  for tp in b.timing_points:
-    print(tp.time, tp.beat_length, tp.meter, ...)
-    ...
-
-  for obj in b.hit_objects:
-    print(obj.x, obj.y, obj.time, obj.hit_sample.volume, ...)
-    ...
-
-  # and much more.. for now the documentation will stay
-  # developer-friendly and perhaps get better in the future,
-  # for the time being, read the code ;)
-  # it's getting simpler i promise
-  ...
-```
-
-soon i'll be adding some kind of simulator that can play
-through the map and achieve a perfect score.. it would be
-useful for scorev2 detection on gulag too.. could finally
-be rid of the scorev2 bugginess :o
+This is an active work in progress, and
+everything is subject to change major refactoring.
 """
 
 # TODO: some of the classmethod usage in this is pretty nasty,
 # seems like i didn't fully understand it at the time of writing.
+
+is_atleast_negative_float = partial( # lol rly
+    utils._isdecimal,
+    _float = True,
+    _negative = True
+)
 
 class TimingPoint:
     __slots__ = (
@@ -83,32 +59,34 @@ class TimingPoint:
         self.effects = effects
 
     @cached_property
-    def bpm(self) -> int:
+    def bpm(self) -> float:
         return 1 / self.beat_length * 1000 * 60
 
     @classmethod
     def from_str(cls, s: str) -> 'TimingPoint':
-        if len(tp_split := s.split(',')) != 8:
-            return
+        tp_split = s.split(',')
 
-        isfloat_n = partial(
-            utils._isdecimal,
-            _float = True,
-            _negative = True
-        )
-
-        # make sure all params are at least floats
-        if all([isfloat_n(x) for x in tp_split]):
-            return cls(
-                time=int(tp_split[0]),
-                beat_length=float(tp_split[1]),
-                meter=int(tp_split[2]),
-                sample_set=int(tp_split[3]),
-                sample_index=int(tp_split[4]),
-                volume=int(tp_split[5]),
-                uninherited=tp_split[6] == '1',
-                effects=int(tp_split[7])
-            )
+        # TODO: find version where this changed
+        #       and use it for the check instead
+        split_len = len(tp_split)
+        if split_len == 8:
+            if all(map(is_atleast_negative_float, tp_split)):
+                return cls(
+                    time=int(tp_split[0]),
+                    beat_length=float(tp_split[1]),
+                    meter=int(tp_split[2]),
+                    sample_set=int(tp_split[3]),
+                    sample_index=int(tp_split[4]),
+                    volume=int(tp_split[5]),
+                    uninherited=tp_split[6] == '1',
+                    effects=int(tp_split[7])
+                )
+        elif split_len == 2:
+            if all(map(is_atleast_negative_float, tp_split)):
+                return cls(
+                    time=int(tp_split[0]),
+                    beat_length=float(tp_split[1])
+                )
 
 @unique
 class SampleSet(IntEnum):
@@ -134,6 +112,7 @@ class HitSample:
         self.filename = filename
 
     @classmethod
+    @cache
     def from_str(cls, s: str) -> 'HitSample':
         if len(hs_split := s.split(':')) != 5:
             return
@@ -188,6 +167,8 @@ class HitSound(IntFlag):
         return self.name.lower()
 
 class HitObject:
+    __slots__ = ('x', 'y', 'time', 'hit_sound', 'hit_sample')
+
     def __init__(
         self,
         x: int, y: int, time: int,
@@ -206,46 +187,12 @@ class HitObject:
         self.hit_sound = hit_sound
         self.hit_sample = hit_sample
 
-    @staticmethod
-    def from_str(s: str) -> 'HitObject':
-        if len(args := s.split(',', 5)) != 6:
-            return
-
-        # make sure all params so far are integral
-        if all(map(str.isdecimal, args[:-1])):
-            # parse common items from hit object
-            # the first 5 params of any hitobject
-            type_ = int(args[3])
-
-            # hit sample not read yet, it may be at the
-            # end of the args list depending on the type.
-
-            if type_ & HIT_CIRCLE:
-                cls = HitCircle
-            elif type_ & SLIDER:
-                cls = Slider
-            elif type_ & SPINNER:
-                cls = Spinner
-            elif type_ & MANIA_HOLD:
-                cls = ManiaHold
-            else:
-                logging.log(
-                    f'Unknown hit object type {type_}',
-                    logging.Ansi.LYELLOW
-                )
-                return
-
-            return cls.from_str(
-                s=args[5],
-                x=int(args[0]),
-                y=int(args[1]),
-                time=int(args[2]),
-                hit_sound=HitSound(int(args[4]))
-            ) # pass rest of the args
-
 class HitCircle(HitObject):
     # hitcircle is simple, nothing extra,
     # so we don't have to write constructor
+
+    def __repr__(self) -> str:
+        return f'HitObject @ {{{self.x} {self.y}}}'
 
     @classmethod
     def from_str(cls, s: str, **kwargs):
@@ -261,6 +208,14 @@ class CurveType(IntEnum):
     Linear = 2
     Perfect = 3
 
+    @staticmethod
+    @cache
+    def from_str(s: str) -> 'CurveType':
+        return {
+            'B': CurveType.Bezier, 'C': CurveType.Catmull,
+            'L': CurveType.Linear, 'P': CurveType.Perfect
+        }[s]
+
     #def __str__(self) -> str:
     #    # first char of character
     #    return self.name[0]
@@ -273,7 +228,7 @@ class Slider(HitObject):
 
     def __init__(
         self, curve_type: CurveType,
-        curve_points: list[str],
+        curve_points: list[tuple[int, int]],
         slides: int,
         length: float,
         edge_sounds: list[int] = [],
@@ -289,6 +244,9 @@ class Slider(HitObject):
 
         super().__init__(**kwargs)
 
+    def __repr__(self) -> str:
+        return f'{self.curve_type.name} Slider @ {{{self.x} {self.y}}}'
+
     @classmethod
     def from_str(cls, s: str, **kwargs):
         if len(split := s.split(',')) < 3:
@@ -299,18 +257,18 @@ class Slider(HitObject):
 
         if _extra:
             assert len(_extra) == 3
-            kwargs |= {
-                'edge_sounds': list(map(int, _extra[0].split('|'))),
-                'edge_sets': [x.split(':', 1) for x in _extra[1].split('|')],
-                'hit_sample': HitSample.from_str(_extra[2])
-            }
+            kwargs['edge_sounds'] = list(map(int, _extra[0].split('|')))
+            kwargs['edge_sets'] = [x.split(':', 1) for x in _extra[1].split('|')]
+            kwargs['hit_sample'] = HitSample.from_str(_extra[2])
+
+        curve_points = []
+        for entry in cpoints.split('|'):
+            split = entry.split(':', maxsplit=1)
+            curve_points.append((int(split[0]), int(split[1])))
 
         return cls(
-            curve_type={
-                'B': CurveType.Bezier, 'C': CurveType.Catmull,
-                'L': CurveType.Linear, 'P': CurveType.Perfect
-            }[ctype],
-            curve_points=cpoints.split('|'),
+            curve_type=CurveType.from_str(ctype),
+            curve_points=curve_points,
             slides=int(_slides),
             length=float(_slen),
             **kwargs
@@ -331,7 +289,7 @@ class Spinner(HitObject):
 
         if split[0].isdecimal():
             if split[1] != '0:0:0:0:':
-                kwargs |= {'hit_sample': HitSample.from_str(split[1])}
+                kwargs['hit_sample'] = HitSample.from_str(split[1])
 
             return cls(end_time=int(split[0]), **kwargs)
 
@@ -355,7 +313,7 @@ class ManiaHold(HitObject):
 
         if split[0].isdecimal():
             if split[1] != '0:0:0:0:':
-                kwargs |= {'hit_sample': HitSample.from_str(split[1])}
+                kwargs['hit_sample'] = HitSample.from_str(split[1])
 
             return cls(end_time=int(split[0]), **kwargs)
 
@@ -432,14 +390,12 @@ class Background(Event):
             if not (x_off.isdecimal() and y_off.isdecimal()):
                 return
 
-            kwargs |= {'x_offset': int(x_off),
-                       'y_offset': int(y_off)}
+            kwargs['x_offset'] = int(x_off)
+            kwargs['y_offset'] = int(y_off)
         elif lsplit != 1:
             raise Exception('Invalid arg count for a background.')
 
-        kwargs |= {
-            'filename': split[0].strip('"')
-        }
+        kwargs['filename'] = split[0].strip('"')
 
         return cls(**kwargs)
 
@@ -563,18 +519,8 @@ class Beatmap:
         if not os.path.exists(filename):
             return
 
-        b = cls()
-
         with open(filename, 'r') as f:
-            l: list[str] = []
-
-            # remove any commented-out lines
-            for line in f.readlines():
-                if not line.startswith('//'):
-                    l.append(line)
-
-            b._data = ''.join(l)
-            b._offset = 0
+            b = cls(f.read())
 
         b._parse()
         return b
@@ -800,6 +746,9 @@ class Beatmap:
         ev_end = self.data.find('\n\n')
 
         for line in self.data[:ev_end].splitlines():
+            if line[:2] == '//':
+                continue
+
             ev = Event.from_str(line)
 
             if isinstance(ev, Background):
@@ -854,14 +803,37 @@ class Beatmap:
         # iterate through each line, parsing
         # the lines into hit object objects
         for line in self.data.splitlines():
-            if not (ho := HitObject.from_str(line)):
-                logging.printc(
-                    f'Failed to parse hit object? "{line}"',
-                    logging.Ansi.RED
+            if not (
+                len(args := line.split(',', 5)) == 6 and
+                all(map(str.isdecimal, args[:-1]))
+            ):
+                continue
+
+            t = int(args[3])
+
+            if t & HIT_CIRCLE:
+                cls = HitCircle
+            elif t & SLIDER:
+                cls = Slider
+            elif t & SPINNER:
+                cls = Spinner
+            elif t & MANIA_HOLD:
+                cls = ManiaHold
+            else:
+                logging.log(
+                    f'Unknown hit obj type {t}',
+                    logging.Ansi.LYELLOW
                 )
                 continue
 
-            self.hit_objects.append(ho)
+            obj = cls.from_str(
+                s=args[5],
+                x=int(args[0]),
+                y=int(args[1]),
+                time=int(args[2]),
+                hit_sound=HitSound(int(args[4]))
+            )
+            self.hit_objects.append(obj)
 
         self._offset += len(self.data)
 
