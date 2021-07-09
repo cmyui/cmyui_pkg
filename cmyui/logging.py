@@ -85,12 +85,12 @@ def set_timezone(tz: tzinfo) -> None:
     _log_tz = tz
 
 def log(msg: str, col: Optional[Ansi_T] = None,
-        fd: Optional[str] = None, end: str = '\n') -> None:
+        file: Optional[str] = None, end: str = '\n') -> None:
     """\
     Print a string, in a specified ansi colour with timestamp.
 
     Allows for the functionality to write to a file as
-    well by passing the filepath with the `fd` parameter.
+    well by passing the filepath with the `file` parameter.
     """
 
     ts_short = get_timestamp(full=False, tz=_log_tz)
@@ -102,7 +102,7 @@ def log(msg: str, col: Optional[Ansi_T] = None,
 
     stdout_flush()
 
-    if fd:
-        # log simple ascii output to fd.
-        with open(fd, 'a+') as f:
+    if file:
+        # log simple ascii output to file.
+        with open(file, 'a+') as f:
             f.write(f'[{get_timestamp(full=True, tz=_log_tz)}] {msg}\n')
