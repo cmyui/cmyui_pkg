@@ -399,9 +399,40 @@ class Background(Event):
 
         return cls(**kwargs)
 
-# they're literally identical, since i'm
-# still parsing the time for backgrounds lol
-Video = type('Video', Background.__bases__, dict(Background.__dict__))
+# TODO: this is the exact same as Background lol
+class Video(Event):
+    __slots__ = ('filename', 'x_offset', 'y_offset')
+
+    def __init__(
+        self, filename: str,
+        x_offset: Optional[int] = None,
+        y_offset: Optional[int] = None,
+        **kwargs
+    ) -> None:
+        self.filename = filename
+        self.x_offset = x_offset
+        self.y_offset = y_offset
+
+        super().__init__(**kwargs)
+
+    @classmethod
+    def from_str(cls, s: str, **kwargs):
+        split = s.split(',', 2)
+        lsplit = len(split)
+
+        if lsplit == 3:
+            x_off, y_off = split[1:3]
+            if not (x_off.isdecimal() and y_off.isdecimal()):
+                return
+
+            kwargs['x_offset'] = int(x_off)
+            kwargs['y_offset'] = int(y_off)
+        elif lsplit != 1:
+            raise Exception('Invalid arg count for a background.')
+
+        kwargs['filename'] = split[0].strip('"')
+
+        return cls(**kwargs)
 
 class Break(Event):
     __slots__ = ('end_time',)

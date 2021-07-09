@@ -3,7 +3,6 @@
 import os
 import lzma
 import struct
-from functools import cached_property
 from typing import Optional
 
 from cmyui.osu.mods import Mods
@@ -54,7 +53,7 @@ class ReplayFrame:
         self.y = y
         self.keys = keys
 
-    @cached_property
+    @property
     def as_bytes(self) -> bytes:
         buf = bytearray()
         buf.extend(self.delta.to_bytes(4, 'little', signed=True))
@@ -63,7 +62,7 @@ class ReplayFrame:
 
         return bytes(buf)
 
-    @cached_property
+    @property
     def as_str(self) -> str:
         # we want to display the keys as an integer.
         return f'{self.delta}|{self.x}|{self.y}|{self.keys}'
