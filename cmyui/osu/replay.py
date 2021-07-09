@@ -8,7 +8,10 @@ from typing import Optional
 
 from cmyui.osu.mods import Mods
 
-__all__ = ('ReplayFrame', 'Replay')
+__all__ = ('ReplayFrame', 'Replay',
+           'KEYS_M1', 'KEYS_M2',
+           'KEYS_K1', 'KEYS_K2',
+           'KEYS_SMOKE')
 
 """\
 a simple osu! replay parser, for all your replay parsing needs..
@@ -43,7 +46,7 @@ KEYS_K2 = 1 << 3
 KEYS_SMOKE = 1 << 4
 
 class ReplayFrame:
-    __slots__ = ('delta', 'x', 'y', 'keys', '__dict__')
+    __slots__ = ('delta', 'x', 'y', 'keys')
 
     def __init__(self, delta: int, x: float, y: float, keys: int) -> None:
         self.delta = delta
@@ -63,8 +66,7 @@ class ReplayFrame:
     @cached_property
     def as_str(self) -> str:
         # we want to display the keys as an integer.
-        fmt_dict = self.__dict__ | {'keys': int(self.keys)}
-        return '{delta}|{x}|{y}|{keys}'.format(**fmt_dict)
+        return f'{self.delta}|{self.x}|{self.y}|{self.keys}'
 
 class Replay:
     __slots__ = (
@@ -146,9 +148,10 @@ class Replay:
         self.mods = Mods(self._read_int())
 
         self.life_graph = []
-        for entry in self._read_string()[:-1].split(','):
-            split = entry.split('|', maxsplit=1)
-            self.life_graph.append((int(split[0]), float(split[1])))
+        if _life_graph_str := self._read_string():
+            for entry in _life_graph_str[:-1].split(','):
+                split = entry.split('|', maxsplit=1)
+                self.life_graph.append((int(split[0]), float(split[1])))
 
         self.timestamp = self._read_long()
 
@@ -239,5 +242,7 @@ class Replay:
             except:
                 continue
 
-        self.seed = int(actions[-1].rsplit('|', 1)[1])
+        if self.osu_version > 2013_03_19:
+            self.seed = int(actions[-1].rsplit('|', 1)[1])
+
         return frames
