@@ -63,6 +63,11 @@ be rid of the scorev2 bugginess :o
 # seems like i didn't fully understand it at the time of writing.
 
 class TimingPoint:
+    __slots__ = (
+        'time', 'beat_length', 'meter', 'sample_set', 'sample_index',
+        'volume', 'uninherited', 'effects', '__dict__'
+    )
+
     def __init__(
         self, time: int, beat_length: float,
         meter: int, sample_set: int, sample_index: int,
@@ -116,6 +121,8 @@ class SampleSet(IntEnum):
         return self.name.lower()
 
 class HitSample:
+    __slots__ = ('normal_set', 'addition_set', 'index', 'volume', 'filename')
+
     def __init__(
         self, normal_set: SampleSet, addition_set: SampleSet,
         index: int, volume: int, filename: str
@@ -259,6 +266,11 @@ class CurveType(IntEnum):
     #    return self.name[0]
 
 class Slider(HitObject):
+    __slots__ = (
+        'curve_type', 'curve_points', 'slides',
+        'length', 'edge_sounds', 'edge_sets'
+    )
+
     def __init__(
         self, curve_type: CurveType,
         curve_points: list[str],
@@ -305,6 +317,8 @@ class Slider(HitObject):
         )
 
 class Spinner(HitObject):
+    __slots__ = ('end_time',)
+
     def __init__(self, end_time: int, **kwargs) -> None:
         self.end_time = end_time
 
@@ -322,6 +336,8 @@ class Spinner(HitObject):
             return cls(end_time=int(split[0]), **kwargs)
 
 class ManiaHold(HitObject):
+    __slots__ = ('end_time',)
+
     def __init__(self, end_time: int, **kwargs) -> None:
         self.end_time = end_time
 
@@ -367,6 +383,8 @@ class OverlayPosition(IntEnum):
     Above = 2
 
 class Event:
+    __slots__ = ('start_time',)
+
     def __init__(self, start_time: int) -> None:
         self.start_time = start_time
 
@@ -390,6 +408,8 @@ class Event:
             return cls.from_str(split[2], start_time=int(split[1]))
 
 class Background(Event):
+    __slots__ = ('filename', 'x_offset', 'y_offset')
+
     def __init__(
         self, filename: str,
         x_offset: Optional[int] = None,
@@ -428,6 +448,8 @@ class Background(Event):
 Video = type('Video', Background.__bases__, dict(Background.__dict__))
 
 class Break(Event):
+    __slots__ = ('end_time',)
+
     def __init__(self, end_time: int, **kwargs) -> None:
         self.end_time = end_time
 
@@ -441,7 +463,28 @@ class Break(Event):
 # TODO: storyboards?
 
 class Beatmap:
-    def __init__(self) -> None:
+    __slots__ = (
+        'file_version', 'audio_filename', 'audio_leadin',
+        'preview_time', 'countdown', 'sample_set', 'stack_leniency', 'mode',
+        'letterbox_in_breaks', 'use_skin_sprites', 'overlay_position',
+        'skin_preference', 'epilepsy_warning', 'countdown_offset',
+        'special_style', 'widescreen_storyboard', 'samples_match_playback_rate',
+        'bookmarks', 'distance_spacing', 'beat_divisor', 'grid_size',
+        'timeline_zoom', 'title', 'title_unicode', 'artist', 'artist_unicode',
+        'creator', 'version', 'source', 'tags', 'id', 'set_id', 'diff_hp',
+        'diff_cs', 'diff_od', 'diff_ar', 'slider_multiplier',
+        'slider_tick_rate', 'backgrounds', 'breaks', 'videos', 'storyboards',
+        'timing_points', 'colours', 'hit_objects', '_data', '_offset',
+
+        # deprecated stuff
+        #'audio_hash', 'storyfire_in_front',
+        #'always_show_playback', 'storyboards'
+    )
+
+    def __init__(self, data: str) -> None:
+        self._data = data
+        self._offset = 0
+
         self.file_version: Optional[int] = None
 
         """ general """
@@ -503,14 +546,11 @@ class Beatmap:
         self.colours: Optional[dict[str, Colour]] = None
         self.hit_objects: Optional[list[HitObject]] = None
 
-        """ internal reader use only """
-        self._data: Optional[str] = None
-        self._offset: Optional[int] = None
 
     def __repr__(self) -> str:
         return (
-            '{artist} - {title} ({creator}) [{version}]'
-        ).format(**self.__dict__)
+            f'{self.artist} - {self.title} ({self.creator}) [{self.version}]'
+        )
 
     @property
     def data(self) -> str:
