@@ -4,6 +4,7 @@ import os
 import lzma
 import struct
 from typing import Optional
+from typing import Union
 
 from cmyui.osu.mods import Mods
 
@@ -37,6 +38,8 @@ Basic usage:
 i'm sure it'll get cleaned up more over time, basically
 wrote it with the same style as the beatmap parser.
 """
+
+StrOrBytesPath = Union[str, bytes, os.PathLike[str], os.PathLike[bytes]]
 
 KEYS_M1 = 1 << 0
 KEYS_M2 = 1 << 1
@@ -115,21 +118,31 @@ class Replay:
         return self._data[self._offset:]
 
     @classmethod
-    def from_file(cls, filename: str) -> 'Replay':
-        if not os.path.exists(filename):
+    def from_file(cls, path: StrOrBytesPath, lzma_only: bool = False) -> 'Replay':
+        if not os.path.exists(path):
             return
 
         r = cls()
 
-        with open(filename, 'rb') as f:
+        with open(path, 'rb') as f:
             r._data = f.read()
             r._offset = 0
 
-        r._parse()
+        if not lzma_only:
+            # parse full replay
+            r._parse_full()
+        else:
+            # only parse replay frames
+            r.frames = r._read_frames(r._data)
+
         return r
 
-    def _parse(self) -> None:
-        """ parse replay headers """
+    """Read sections from the data."""
+
+    def _parse_headers(self) -> None:
+        """Parse replay headers."""
+        # TODO: the headers have changed over the course of osu! history.
+        #       add checks based on osu_version to support older versions.
         self.mode = self._read_byte()
         self.osu_version = self._read_int()
         self.map_md5 = self._read_string()
@@ -146,84 +159,100 @@ class Replay:
         self.perfect = self._read_byte()
         self.mods = Mods(self._read_int())
 
-        self.life_graph = []
-        if _life_graph_str := self._read_string():
-            for entry in _life_graph_str[:-1].split(','):
-                split = entry.split('|', maxsplit=1)
-                self.life_graph.append((int(split[0]), float(split[1])))
-
+        self.life_graph = self._read_life_graph()
         self.timestamp = self._read_long()
 
-        """ parse lzma """
-        self.frames = self._read_frames()
+    def _parse_frames(self) -> None:
+        """Parse (lzma'd) replay frames."""
+        lzma_length = self._read_int()
+        if lzma_length:
+            lzma_data = self._read_raw(lzma_length)
+            self.frames = self._read_frames(lzma_data)
+        else:
+            self.frames = []
 
-        """ parse additional info """
+    def _parse_trailers(self) -> None:
+        """Parse replay trailers."""
         self.score_id = self._read_long()
 
         if self.mods & Mods.TARGET:
             self.mod_extras = self._read_double()
 
-    def _read_byte(self):
+    def _parse_full(self) -> None:
+        """Parse a full replay file."""
+        self._parse_headers()
+        self._parse_frames()
+        self._parse_trailers()
+
+    """Read individual elements from the data."""
+
+    def _read_byte(self) -> int:
         val = self.data[0]
         self._offset += 1
         return val
 
-    def _read_short(self):
+    def _read_short(self) -> int:
         val, = struct.unpack('<h', self.data[:2])
         self._offset += 2
         return val
 
-    def _read_int(self):
+    def _read_int(self) -> int:
         val, = struct.unpack('<i', self.data[:4])
         self._offset += 4
         return val
 
-    def _read_float(self):
-        val, = struct.unpack('<f', self.data[:4])
-        self._offset += 4
-        return val
-
-    def _read_long(self):
+    def _read_long(self) -> int:
         val, = struct.unpack('<q', self.data[:8])
         self._offset += 8
         return val
 
-    def _read_double(self):
+    def _read_float(self) -> float:
+        val, = struct.unpack('<f', self.data[:4])
+        self._offset += 4
+        return val
+
+    def _read_double(self) -> float:
         val, = struct.unpack('<d', self.data[:8])
         self._offset += 8
         return val
 
-    def _read_uleb128(self):
+    def _read_uleb128(self) -> int:
         val = shift = 0
 
         while True:
             b = self._read_byte()
 
-            val |= ((b & 0b01111111) << shift)
-            if (b & 0b10000000) == 0x00:
+            val |= ((b & 127) << shift)
+            if (b & 128) == 0:
                 break
 
             shift += 7
 
         return val
 
-    def _read_raw(self, length: int):
+    def _read_raw(self, length: int) -> bytes:
         val = self.data[:length]
         self._offset += length
         return val
 
-    def _read_string(self):
+    def _read_string(self) -> str:
         if self._read_byte() == 0x00:
             return ''
 
         uleb = self._read_uleb128()
         return self._read_raw(uleb).decode()
 
-    def _read_frames(self):
-        frames = []
+    def _read_life_graph(self) -> None:
+        life_graph = []
+        if _life_graph_str := self._read_string():
+            for entry in _life_graph_str.split(','):
+                split = entry.split('|', maxsplit=1)
+                life_graph.append((int(split[0]), float(split[1])))
+        return life_graph
 
-        lzma_len = self._read_int()
-        lzma_data = lzma.decompress(self._read_raw(lzma_len))
+    def _read_frames(self, data: bytes) -> Optional[list[ReplayFrame]]:
+        lzma_data = lzma.decompress(data)
+        frames = []
 
         actions = [x for x in lzma_data.decode().split(',') if x]
 
@@ -241,7 +270,22 @@ class Replay:
             except:
                 continue
 
-        if self.osu_version > 2013_03_19:
-            self.seed = int(actions[-1].rsplit('|', 1)[1])
+        if actions[-1].startswith('-12345'): # >(=?)2013/03/19
+            # last replay frame contains the seed
+            self.seed = int(actions[-1].rsplit('|', maxsplit=1)[1])
+        else:
+            # treat last replay frame as a normal frame
+            if len(split := action.split('|')) != 4:
+                return
+
+            try:
+                frames.append(ReplayFrame(
+                    delta=int(split[0]),
+                    x=float(split[1]),
+                    y=float(split[2]),
+                    keys=int(split[3])
+                ))
+            except:
+                pass
 
         return frames
