@@ -20,13 +20,12 @@ __all__ = ('TimingPoint', 'SampleSet', 'HitSample',
            'Beatmap', 'CurveType', 'HitSound', 'Colour', 'OverlayPosition',
            'Event', 'Background', 'Video', 'Break')
 
-"""A rather complete beatmap parser for osu, with basic safety.
+"""A relatively complete pure-py (slow) beatmap parser for osu!.
 
-This implementation is pretty slow since it's pure python,
-but it's easy to use and is more complete than most i've seen.
-
-This is an active work in progress, and
-everything is subject to change major refactoring.
+This is an active work in progress, and everything is subject
+to major refactoring. Some portions may be implemented as c
+extensions to help with the speed issue, since (in my opinion)
+it isn't currently fit for use in any large scale web applications.
 """
 
 # TODO: some of the classmethod usage in this is pretty nasty,
@@ -340,6 +339,8 @@ class OverlayPosition(IntEnum):
     Below = 1
     Above = 2
 
+# TODO: events get quite a bit crazier
+#       if we want to support storyboards.
 class Event:
     __slots__ = ('start_time',)
 
@@ -551,9 +552,18 @@ class Beatmap:
             return
 
         with open(filename, 'r') as f:
-            b = cls(f.read())
+            data = f.read()
+            if not data:
+                return
 
+        b = cls(data)
         b._parse()
+
+        if b.file_version is None:
+            # failed to parse the map.
+            # this will also log the error to stdout
+            return
+
         return b
 
     def _parse(self) -> None:
@@ -562,7 +572,8 @@ class Beatmap:
 
         ver_str = self.data[:sec_start - self._offset]
         if not ver_str.isdecimal():
-            raise Exception('Invalid file format.')
+            logging.log('Failed to parse version string.', logging.Ansi.LRED)
+            return
 
         self.file_version = int(ver_str)
 
@@ -604,7 +615,8 @@ class Beatmap:
         end_of_section = self.data.find('\n\n')
 
         for line in self.data[:end_of_section].splitlines():
-            key, val = line.split(': ', maxsplit=1)
+            key, val = line.split(':', maxsplit=1)
+            val = val.lstrip()
 
             # how should i clean this.. lol
 
@@ -677,7 +689,8 @@ class Beatmap:
         e_end = self.data.find('\n\n')
 
         for line in self.data[:e_end].splitlines():
-            key, val = line.split(': ', maxsplit=1)
+            key, val = line.split(':', maxsplit=1)
+            val = val.lstrip()
 
             if key == 'Bookmarks':
                 bookmarks_str = val.split(',')
@@ -820,7 +833,9 @@ class Beatmap:
         cl_end = self.data.find('\n\n')
 
         for line in self.data[:cl_end].splitlines():
-            key, val = line.split(' : ', maxsplit=1)
+            key, val = line.split(':', maxsplit=1)
+            key = key.rstrip()
+            val = val.lstrip()
 
             if colour := Colour.from_str(val):
                 # add to beatmap's colours
