@@ -18,9 +18,12 @@ __all__ = ('get_timestamp', '_isdecimal', 'rstring',
            'rainbow_color_stops',
            'magnitude_fmt_time')
 
-ts_fmt = ('%I:%M:%S%p', '%d/%m/%Y %I:%M:%S%p')
-def get_timestamp(full: bool = False, tz: Optional[tzinfo] = None) -> str:
-    return f'{datetime.now(tz=tz):{ts_fmt[full]}}'
+def get_timestamp(
+    full: bool = False,
+    tz: Optional[tzinfo] = None
+) -> str:
+    fmt = '%d/%m/%Y %I:%M:%S%p' if full else '%I:%M:%S%p'
+    return f'{datetime.now(tz=tz):{fmt}}'
 
 def _isdecimal(s: str, _float: bool = False,
                _negative: bool = False) -> None:
@@ -34,7 +37,7 @@ def _isdecimal(s: str, _float: bool = False,
 
 __chars = string.ascii_letters + string.digits
 def rstring(l: int, seq: str = __chars) -> str:
-    return ''.join((random.choice(seq) for _ in range(l)))
+    return ''.join([random.choice(seq) for _ in range(l)])
 
 _CacheStats = namedtuple('CacheStats', ['hits', 'misses'])
 
@@ -146,9 +149,11 @@ def rainbow_color_stops(
     end: float = 2 / 3
 ) -> list[tuple[int, int, int]]:
     # https://stackoverflow.com/a/58811633
-    return [(r * 255, g * 255, b * 255)
-            for r, g, b in [colorsys.hls_to_rgb(end * i / (n - 1), lum, 1)
-                            for i in range(n)]]
+    return [
+        (r * 255, g * 255, b * 255)
+        for r, g, b in [colorsys.hls_to_rgb(end * i / (n - 1), lum, 1)
+                        for i in range(n)]
+    ]
 
 # TODO: genericize this to metric all units?
 TIME_ORDER_SUFFIXES = ['nsec', 'μsec', 'msec', 'sec']

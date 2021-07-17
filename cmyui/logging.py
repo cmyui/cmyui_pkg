@@ -79,7 +79,7 @@ def printc(s: str, col: Ansi_T, end: str = '\n') -> None:
     stdout_write(f'{col!r}{s}{_reset}{end}')
     stdout_flush()
 
-_log_tz = ZoneInfo('America/Toronto') # default
+_log_tz = ZoneInfo('GMT') # default
 def set_timezone(tz: tzinfo) -> None:
     global _log_tz
     _log_tz = tz
