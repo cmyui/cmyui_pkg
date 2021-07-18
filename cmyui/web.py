@@ -608,7 +608,7 @@ class Server:
                 await self.before_serving()
 
             # Start pending coroutine tasks.
-            if self.debug:
+            if self.debug and self._task_coros:
                 log(f'-> Starting {len(self._task_coros)} tasks.', Ansi.LMAGENTA)
 
             for coro in self._task_coros:
