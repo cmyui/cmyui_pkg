@@ -118,14 +118,10 @@ class Replay:
         return self._data[self._offset:]
 
     @classmethod
-    def from_file(cls, path: StrOrBytesPath, lzma_only: bool = False) -> 'Replay':
-        if not os.path.exists(path):
-            return
-
+    def from_data(cls, data: bytes, lzma_only: bool = False) -> 'Replay':
         r = cls()
 
-        with open(path, 'rb') as f:
-            r._data = f.read()
+        r._data = data
             r._offset = 0
 
         if not lzma_only:
@@ -136,6 +132,12 @@ class Replay:
             r.frames = r._read_frames(r._data)
 
         return r
+
+    @classmethod
+    def from_file(cls, path: StrOrBytesPath, lzma_only: bool = False) -> Optional['Replay']:
+        if os.path.exists(path):
+            with open(path, 'rb') as f:
+                return cls.from_data(f.read(), lzma_only)
 
     """Read sections from the data."""
 

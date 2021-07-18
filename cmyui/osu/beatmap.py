@@ -547,15 +547,7 @@ class Beatmap:
         return self._data[self._offset:]
 
     @classmethod
-    def from_file(cls, filename: str) -> 'Beatmap':
-        if not os.path.exists(filename):
-            return
-
-        with open(filename, 'r') as f:
-            data = f.read()
-            if not data:
-                return
-
+    def from_data(cls, data: str) -> Optional['Beatmap']:
         b = cls(data)
         b._parse()
 
@@ -565,6 +557,12 @@ class Beatmap:
             return
 
         return b
+
+    @classmethod
+    def from_file(cls, filename: str) -> Optional['Beatmap']:
+        if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                return Beatmap.from_data(f.read())
 
     def _parse(self) -> None:
         sec_start = self.data.find('\n\n')
