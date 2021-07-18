@@ -166,10 +166,10 @@ class Connection:
         self.raw_path = None
         self.httpver = 0.0
 
-        self.args = {}
-        self.multipart_args = {}
+        self.args: dict[str, str] = {}
+        self.multipart_args: dict[str, str] = {}
 
-        self.files = {}
+        self.files: dict[str, bytes] = {}
 
         # Response params
         self.resp_code = 200
