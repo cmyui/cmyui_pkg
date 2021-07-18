@@ -75,7 +75,8 @@ class Replay:
         'mode', 'osu_version', 'map_md5', 'player_name', 'replay_md5',
         'n300', 'n100', 'n50', 'ngeki', 'nkatu', 'nmiss',
         'score', 'max_combo', 'perfect', 'mods', 'life_graph',
-        'timestamp', 'score_id', 'mod_extras', 'seed', 'frames',
+        'timestamp', 'score_id', 'mod_extras', 'seed',
+        'skip_offset', 'frames',
         '_data', '_offset'
     )
     def __init__(self) -> None:
@@ -107,6 +108,7 @@ class Replay:
         self.seed: Optional[int] = None
 
         """ replay frames """
+        self.skip_offset: Optional[int] = None
         self.frames: Optional[list[ReplayFrame]] = None
 
         """ internal reader use only """
@@ -258,7 +260,13 @@ class Replay:
 
         actions = [x for x in lzma_data.decode().split(',') if x]
 
-        for action in actions[:-1]:
+        # stable adds two extra frames at the beginning, the first being
+        # useless and the second containing the skip offset (if any)
+        skip_offs = actions[1].split('|', maxsplit=1)[0]
+        if skip_offs != '-1':
+            self.skip_offset = int(skip_offs)
+
+        for action in actions[2:-1]:
             if len(split := action.split('|')) != 4:
                 return
 
