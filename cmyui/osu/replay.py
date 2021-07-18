@@ -124,7 +124,7 @@ class Replay:
         r = cls()
 
         r._data = data
-            r._offset = 0
+        r._offset = 0
 
         if not lzma_only:
             # parse full replay
@@ -145,8 +145,6 @@ class Replay:
 
     def _parse_headers(self) -> None:
         """Parse replay headers."""
-        # TODO: the headers have changed over the course of osu! history.
-        #       add checks based on osu_version to support older versions.
         self.mode = self._read_byte()
         self.osu_version = self._read_int()
         self.map_md5 = self._read_string()
@@ -177,7 +175,10 @@ class Replay:
 
     def _parse_trailers(self) -> None:
         """Parse replay trailers."""
-        self.score_id = self._read_long()
+        if self.osu_version >= 2014_07_21:
+            self.score_id = self._read_long()
+        elif self.osu_version >= 2012_10_08:
+            self.score_id = self._read_int()
 
         if self.mods & Mods.TARGET:
             self.mod_extras = self._read_double()
@@ -271,8 +272,12 @@ class Replay:
                 return
 
             try:
+                delta = int(split[0])
+                if delta < 0:
+                    continue
+
                 frames.append(ReplayFrame(
-                    delta=int(split[0]),
+                    delta=delta,
                     x=float(split[1]),
                     y=float(split[2]),
                     keys=int(split[3])
