@@ -14,6 +14,7 @@ import select
 import signal
 import socket
 import sys
+import urllib.parse
 from functools import wraps
 from time import perf_counter as clock
 from time import perf_counter_ns as clock_ns
@@ -179,7 +180,7 @@ class Connection:
 
     """ Request methods """
 
-    def _parse_urlencoded(self, data: bytes) -> None:
+    def _parse_urlencoded(self, data: str) -> None:
         for a_pair in data.split('&'):
             a_key, a_val = a_pair.split('=', 1)
             self.args[a_key] = a_val
@@ -269,7 +270,9 @@ class Connection:
                 if content_type.startswith('multipart/form-data'):
                     self._parse_multipart()
                 elif content_type == 'application/x-www-form-urlencoded':
-                    self._parse_urlencoded(self.body.obj) # hmmm
+                    self._parse_urlencoded(
+                        urllib.parse.unquote(self.body.tobytes().decode())
+                    ) # hmmm
 
     """ Response methods """
 
