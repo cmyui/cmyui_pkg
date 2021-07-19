@@ -1,3 +1,4 @@
+""" Tools for working with osu!'s .osr file format """
 # -*- coding: utf-8 -*-
 
 import os
@@ -48,13 +49,16 @@ KEYS_K2 = 1 << 3
 KEYS_SMOKE = 1 << 4
 
 class ReplayFrame:
-    __slots__ = ('delta', 'x', 'y', 'keys')
+    __slots__ = ('delta', 'x', 'y', 'keys', 'time')
 
-    def __init__(self, delta: int, x: float, y: float, keys: int) -> None:
+    def __init__(self, delta: int, time: int,
+                 x: float, y: float, keys: int) -> None:
         self.delta = delta
         self.x = x
         self.y = y
         self.keys = keys
+
+        self.time = time
 
     @property
     def as_bytes(self) -> bytes:
@@ -76,7 +80,7 @@ class Replay:
         'n300', 'n100', 'n50', 'ngeki', 'nkatu', 'nmiss',
         'score', 'max_combo', 'perfect', 'mods', 'life_graph',
         'timestamp', 'score_id', 'mod_extras', 'seed',
-        'skip_offset', 'frames',
+        'skip_offset', 'frames', 'new_keypresses',
         '_data', '_offset'
     )
     def __init__(self) -> None:
@@ -110,6 +114,7 @@ class Replay:
         """ replay frames """
         self.skip_offset: Optional[int] = None
         self.frames: Optional[list[ReplayFrame]] = None
+        self.new_keypresses: Optional[list[int]] = None # indices of self.frames
 
         """ internal reader use only """
         self._data: Optional[bytes] = None
@@ -131,7 +136,7 @@ class Replay:
             r._parse_full()
         else:
             # only parse replay frames
-            r.frames = r._read_frames(r._data)
+            r._read_frames(r._data)
 
         return r
 
@@ -169,7 +174,7 @@ class Replay:
         lzma_length = self._read_int()
         if lzma_length:
             lzma_data = self._read_raw(lzma_length)
-            self.frames = self._read_frames(lzma_data)
+            self._read_frames(lzma_data)
         else:
             self.frames = []
 
@@ -250,14 +255,18 @@ class Replay:
     def _read_life_graph(self) -> None:
         life_graph = []
         if _life_graph_str := self._read_string():
+            if _life_graph_str[-1] == ',':
+                _life_graph_str = _life_graph_str[:-1]
+
             for entry in _life_graph_str.split(','):
                 split = entry.split('|', maxsplit=1)
                 life_graph.append((int(split[0]), float(split[1])))
         return life_graph
 
-    def _read_frames(self, data: bytes) -> Optional[list[ReplayFrame]]:
+    def _read_frames(self, data: bytes) -> None:
         lzma_data = lzma.decompress(data)
-        frames = []
+        self.frames = []
+        self.new_keypresses = []
 
         actions = [x for x in lzma_data.decode().split(',') if x]
 
@@ -267,22 +276,37 @@ class Replay:
         if skip_offs != '-1':
             self.skip_offset = int(skip_offs)
 
+        prev_keys = 0
+        total_delta = self.skip_offset or 0
+
         for action in actions[2:-1]:
             if len(split := action.split('|')) != 4:
                 return
 
             try:
                 delta = int(split[0])
-                if delta < 0:
-                    continue
+                total_delta += delta
+                #if delta < 0:
+                #    continue
 
-                frames.append(ReplayFrame(
+                keys = int(split[3])
+
+                frame = ReplayFrame(
                     delta=delta,
+                    time=total_delta,
                     x=float(split[1]),
                     y=float(split[2]),
-                    keys=int(split[3])
-                ))
-            except:
+                    keys=keys
+                )
+                if (
+                    (keys & KEYS_M1 and not prev_keys & KEYS_M1) or
+                    (keys & KEYS_M2 and not prev_keys & KEYS_M2)
+                ):
+                    self.new_keypresses.append(frame)
+
+                self.frames.append(frame)
+                prev_keys = keys
+            except ValueError:
                 continue
 
         if actions[-1].startswith('-12345'): # >(=?)2013/03/19
@@ -294,13 +318,11 @@ class Replay:
                 return
 
             try:
-                frames.append(ReplayFrame(
+                self.frames.append(ReplayFrame(
                     delta=int(split[0]),
                     x=float(split[1]),
                     y=float(split[2]),
                     keys=int(split[3])
                 ))
-            except:
+            except ValueError:
                 pass
-
-        return frames

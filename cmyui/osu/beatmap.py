@@ -1,3 +1,4 @@
+""" Tools for working with osu!'s .osu file format """
 # -*- coding: utf-8 -*-
 
 import os
