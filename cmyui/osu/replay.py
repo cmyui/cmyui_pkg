@@ -9,10 +9,7 @@ from typing import Union
 
 from cmyui.osu.mods import Mods
 
-__all__ = ('ReplayFrame', 'Replay',
-           'KEYS_M1', 'KEYS_M2',
-           'KEYS_K1', 'KEYS_K2',
-           'KEYS_SMOKE')
+__all__ = ('Replay', 'ReplayFrame', 'Keys')
 
 """\
 a simple osu! replay parser, for all your replay parsing needs..
@@ -42,11 +39,12 @@ wrote it with the same style as the beatmap parser.
 
 StrOrBytesPath = Union[str, bytes, os.PathLike[str], os.PathLike[bytes]]
 
-KEYS_M1 = 1 << 0
-KEYS_M2 = 1 << 1
-KEYS_K1 = 1 << 2
-KEYS_K2 = 1 << 3
-KEYS_SMOKE = 1 << 4
+class Keys:
+    M1 = 1 << 0
+    M2 = 1 << 1
+    K1 = 1 << 2
+    K2 = 1 << 3
+    SMOKE = 1 << 4
 
 class ReplayFrame:
     __slots__ = ('delta', 'x', 'y', 'keys', 'time')
@@ -141,7 +139,10 @@ class Replay:
         return r
 
     @classmethod
-    def from_file(cls, path: StrOrBytesPath, lzma_only: bool = False) -> Optional['Replay']:
+    def from_file(
+        cls, path: StrOrBytesPath,
+        lzma_only: bool = False
+    ) -> Optional['Replay']:
         if os.path.exists(path):
             with open(path, 'rb') as f:
                 return cls.from_data(f.read(), lzma_only)
@@ -302,8 +303,8 @@ class Replay:
                     keys=keys
                 )
                 if (
-                    (keys & KEYS_M1 and not prev_keys & KEYS_M1) or
-                    (keys & KEYS_M2 and not prev_keys & KEYS_M2)
+                    (keys & Keys.M1 and not prev_keys & Keys.M1) or
+                    (keys & Keys.M2 and not prev_keys & Keys.M2)
                 ):
                     self.new_keypresses.append(frame)
 

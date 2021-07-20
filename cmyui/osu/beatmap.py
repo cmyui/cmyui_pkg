@@ -7,20 +7,18 @@ from enum import IntFlag
 from enum import unique
 from functools import cache
 from functools import cached_property
-from functools import partial
 from typing import Callable
-from typing import NamedTuple # there should probably be a
-                              # lot more usage of this lol
+from typing import NamedTuple
 from typing import Optional
 
 from cmyui import utils
 from cmyui import logging
 from cmyui.osu.replay import ReplayFrame
 
-__all__ = ('TimingPoint', 'SampleSet', 'HitSample',
-           'HitObject', 'HitCircle', 'Slider', 'Spinner', 'ManiaHold',
-           'Beatmap', 'CurveType', 'HitSound', 'Colour', 'OverlayPosition',
-           'Event', 'Background', 'Video', 'Break')
+__all__ = ('Beatmap', 'HitObject', 'HitCircle', 'Slider', 'Spinner', 'ManiaHold',
+           'CurveType', 'HitSound', 'HitSample', 'SampleSet', 'TimingPoint',
+           'Colour', 'OverlayPosition', 'Colour', 'Event', 'Background',
+           'Video', 'Break')
 
 """A relatively complete pure-py (slow) beatmap parser for osu!.
 
@@ -30,14 +28,7 @@ extensions to help with the speed issue, since (in my opinion)
 it isn't currently fit for use in any large scale web applications.
 """
 
-# TODO: some of the classmethod usage in this is pretty nasty,
-# seems like i didn't fully understand it at the time of writing.
-
-is_atleast_negative_float = partial( # lol rly
-    utils._isdecimal,
-    _float = True,
-    _negative = True
-)
+# TODO: reduce overall inconsistencies in object types
 
 class TimingPoint:
     __slots__ = (
@@ -70,8 +61,9 @@ class TimingPoint:
         # TODO: find version where this changed
         #       and use it for the check instead
         split_len = len(tp_split)
-        if split_len == 8:
-            if all(map(is_atleast_negative_float, tp_split)):
+
+        try: # TODO: find version with the change?
+            if split_len == 8:
                 return cls(
                     time=int(tp_split[0]),
                     beat_length=float(tp_split[1]),
@@ -82,12 +74,14 @@ class TimingPoint:
                     uninherited=tp_split[6] == '1',
                     effects=int(tp_split[7])
                 )
-        elif split_len == 2:
-            if all(map(is_atleast_negative_float, tp_split)):
+            elif split_len == 2:
                 return cls(
                     time=int(tp_split[0]),
                     beat_length=float(tp_split[1])
                 )
+        except ValueError:
+            # failed to cast something
+            return
 
 @unique
 class SampleSet(IntEnum):
@@ -126,25 +120,6 @@ class HitSample:
                 volume=int(hs_split[3]),
                 filename=hs_split[4]
             )
-
-""" # slow :(
-@unique
-class ObjectType(IntFlag):
-    HIT_CIRCLE = 1 << 0
-    SLIDER = 1 << 1
-    NEW_COMBO = 1 << 2
-    SPINNER = 1 << 3
-
-    # a bit weird?
-    # maybe it should be a property
-    # where it just checks all the bits
-    # or soemthing.. will think abt this
-    SKIP_ONE = 1 << 4
-    SKIP_TWO = 1 << 5
-    SKIP_THREE = 1 << 6
-
-    MANIA_HOLD = 1 << 7
-"""
 
 class ObjectType:
     HIT_CIRCLE = 1 << 0
