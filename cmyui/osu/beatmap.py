@@ -146,16 +146,17 @@ class ObjectType(IntFlag):
     MANIA_HOLD = 1 << 7
 """
 
-HIT_CIRCLE = 1 << 0
-SLIDER = 1 << 1
-NEW_COMBO = 1 << 2
-SPINNER = 1 << 3
+class ObjectType:
+    HIT_CIRCLE = 1 << 0
+    SLIDER = 1 << 1
+    NEW_COMBO = 1 << 2
+    SPINNER = 1 << 3
 
-SKIP_ONE = 1 << 4
-SKIP_TWO = 1 << 5
-SKIP_THREE = 1 << 6
+    SKIP_ONE = 1 << 4
+    SKIP_TWO = 1 << 5
+    SKIP_THREE = 1 << 6
 
-MANIA_HOLD = 1 << 7
+    MANIA_HOLD = 1 << 7
 
 @unique
 class HitSound(IntFlag):
@@ -252,7 +253,7 @@ class HitCircle(HitObject):
     # so we don't have to write constructor
 
     def __repr__(self) -> str:
-        return f'HitObject @ {{{self.x} {self.y}}}'
+        return f'Circle @ {{{self.x} {self.y}}}'
 
     @classmethod
     def from_str(cls, s: str, **kwargs):
@@ -305,7 +306,7 @@ class Slider(HitObject):
         super().__init__(**kwargs)
 
     def __repr__(self) -> str:
-        return f'{self.curve_type.name} Slider @ {{{self.x} {self.y}}}'
+        return f'Slider [{self.curve_type.name}] @ {{{self.x} {self.y}}}'
 
     @classmethod
     def from_str(cls, s: str, **kwargs):
@@ -423,9 +424,9 @@ class Event:
             else:
                 ev_map = {'Video': Video, 'Break': Break}
 
-            cls = ev_map[_type]
-
-            return cls.from_str(split[2], start_time=int(split[1]))
+            if _type in ev_map:
+                cls = ev_map[_type]
+                return cls.from_str(split[2], start_time=int(split[1]))
 
 class Background(Event):
     __slots__ = ('filename', 'x_offset', 'y_offset')
@@ -854,14 +855,13 @@ class Beatmap:
 
             ev = Event.from_str(line)
 
-            if isinstance(ev, Background):
-                self.backgrounds.append(ev)
-            elif isinstance(ev, Video):
-                self.videos.append(ev)
-            elif isinstance(ev, Break):
-                self.breaks.append(ev)
-            else:
-                breakpoint()
+            if ev is not None:
+                if isinstance(ev, Background):
+                    self.backgrounds.append(ev)
+                elif isinstance(ev, Video):
+                    self.videos.append(ev)
+                elif isinstance(ev, Break):
+                    self.breaks.append(ev)
 
         self._offset += ev_end
 
