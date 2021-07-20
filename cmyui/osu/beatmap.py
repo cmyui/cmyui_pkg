@@ -10,6 +10,7 @@ from functools import cached_property
 from typing import Callable
 from typing import NamedTuple
 from typing import Optional
+from typing import Union
 
 from cmyui import utils
 from cmyui import logging
@@ -29,6 +30,8 @@ it isn't currently fit for use in any large scale web applications.
 """
 
 # TODO: reduce overall inconsistencies in object types
+
+StrOrBytesPath = Union[str, bytes, os.PathLike[str], os.PathLike[bytes]]
 
 class TimingPoint:
     __slots__ = (
@@ -596,9 +599,9 @@ class Beatmap:
         return b
 
     @classmethod
-    def from_file(cls, filename: str) -> Optional['Beatmap']:
-        if os.path.exists(filename):
-            with open(filename, 'r') as f:
+    def from_file(cls, path: StrOrBytesPath) -> Optional['Beatmap']:
+        if os.path.exists(path):
+            with open(path, 'r') as f:
                 return Beatmap.from_data(f.read())
 
     def _parse(self) -> None:
