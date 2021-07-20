@@ -15,6 +15,7 @@ from typing import Optional
 
 from cmyui import utils
 from cmyui import logging
+from cmyui.osu.replay import ReplayFrame
 
 __all__ = ('TimingPoint', 'SampleSet', 'HitSample',
            'HitObject', 'HitCircle', 'Slider', 'Spinner', 'ManiaHold',
@@ -195,6 +196,56 @@ class HitObject:
         # implementation to make sense of it? idk man lol
         self.hit_sound = hit_sound
         self.hit_sample = hit_sample
+
+    def determine_judgement(
+        self,
+        keypress_frame: ReplayFrame,
+        hit_windows: dict[int, float]
+    ) -> 'Judgement':
+        hit_error = keypress_frame.time - self.time
+
+        if isinstance(self, HitCircle):
+            if abs(hit_error) <= hit_windows[300]:
+                return Judgement300(self, keypress_frame)
+            elif abs(hit_error) <= hit_windows[100]:
+                return Judgement100(self, keypress_frame)
+            elif abs(hit_error) <= hit_windows[50]:
+                return Judgement50(self, keypress_frame)
+            else:
+                return JudgementMiss(self, keypress_frame)
+        elif isinstance(self, Slider): # TODO
+            return Judgement300(self, keypress_frame)
+        elif isinstance(self, Spinner): # TODO
+            return Judgement300(self, keypress_frame)
+        else:
+            breakpoint()
+            print()
+
+class Judgement:
+    __slots__ = ('hitobj', 'keypress_frame', 'hit_error')
+    def __init__(self, hitobj: HitObject,
+                 keypress_frame: ReplayFrame) -> None:
+        self.hitobj = hitobj
+        self.keypress_frame = keypress_frame
+
+        self.hit_error = keypress_frame.time - hitobj.time
+
+class Judgement300(Judgement):
+    def __repr__(self) -> str:
+        return (f'{logging.Ansi.LCYAN!r}300{logging.Ansi.RESET!r} on {self.hitobj} - '
+                f'{{{self.keypress_frame.x:.2f} {self.keypress_frame.y:.2f}}}')
+class Judgement100(Judgement):
+    def __repr__(self) -> str:
+        return (f'{logging.Ansi.LGREEN!r}100{logging.Ansi.RESET!r} on {self.hitobj} - '
+                f'{{{self.keypress_frame.x:.2f} {self.keypress_frame.y:.2f}}}')
+class Judgement50(Judgement):
+    def __repr__(self) -> str:
+        return (f'{logging.Ansi.LMAGENTA!r}50{logging.Ansi.RESET!r} on {self.hitobj} - '
+                f'{{{self.keypress_frame.x:.2f} {self.keypress_frame.y:.2f}}}')
+class JudgementMiss(Judgement):
+    def __repr__(self) -> str:
+        return (f'{logging.Ansi.LRED!r}Miss{logging.Ansi.RESET!r} on {self.hitobj} - '
+                f'{{{self.keypress_frame.x:.2f} {self.keypress_frame.y:.2f}}}')
 
 class HitCircle(HitObject):
     # hitcircle is simple, nothing extra,
