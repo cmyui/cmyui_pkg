@@ -114,7 +114,7 @@ class Replay:
         """ replay frames """
         self.skip_offset: Optional[int] = None
         self.frames: Optional[list[ReplayFrame]] = None
-        self.new_keypresses: Optional[list[int]] = None # indices of self.frames
+        self.new_keypresses: Optional[list[ReplayFrame]] = None
 
         """ internal reader use only """
         self._data: Optional[bytes] = None
@@ -275,6 +275,9 @@ class Replay:
         skip_offs = actions[1].split('|', maxsplit=1)[0]
         if skip_offs != '-1':
             self.skip_offset = int(skip_offs)
+
+            if self.mods & Mods.AUTOPLAY:
+                self.skip_offset -= 100000
 
         prev_keys = 0
         total_delta = self.skip_offset or 0
