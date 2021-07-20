@@ -167,17 +167,26 @@ class HitSound(IntFlag):
         return self.name.lower()
 
 class HitObject:
-    __slots__ = ('x', 'y', 'time', 'hit_sound', 'hit_sample')
+    __slots__ = ('x', 'y', 'time',
+                 'child_tp', 'parent_tp',
+                 'hit_sound', 'hit_sample')
 
     def __init__(
         self,
-        x: int, y: int, time: int,
+        x: int,
+        y: int,
+        time: int,
+        child_tp: TimingPoint,
+        parent_tp: TimingPoint,
         hit_sound: HitSound,
         hit_sample: Optional[HitSample] = None
     ) -> None:
         self.x = x
         self.y = y
         self.time = time
+
+        self.child_tp = child_tp
+        self.parent_tp = parent_tp
 
         # very closely related
         # XXX: i could actually refactor these to
@@ -845,6 +854,10 @@ class Beatmap:
     def _parse_hit_objects(self) -> None:
         self.hit_objects = []
 
+        parent_tp = self.timing_points[0]
+        child_tp = self.timing_points[0]
+        next_tp_index = 1
+
         # iterate through each line, parsing
         # the lines into hit object objects
         for line in self.data.splitlines():
@@ -856,13 +869,13 @@ class Beatmap:
 
             t = int(args[3])
 
-            if t & HIT_CIRCLE:
+            if t & ObjectType.HIT_CIRCLE:
                 cls = HitCircle
-            elif t & SLIDER:
+            elif t & ObjectType.SLIDER:
                 cls = Slider
-            elif t & SPINNER:
+            elif t & ObjectType.SPINNER:
                 cls = Spinner
-            elif t & MANIA_HOLD:
+            elif t & ObjectType.MANIA_HOLD:
                 cls = ManiaHold
             else:
                 logging.log(
@@ -871,12 +884,22 @@ class Beatmap:
                 )
                 continue
 
+            time = int(args[2])
+
+            while time >= self.timing_points[next_tp_index].time:
+                child_tp = self.timing_points[next_tp_index]
+                if child_tp.uninherited:
+                    parent_tp = child_tp
+                next_tp_index += 1
+
             obj = cls.from_str(
                 s=args[5],
                 x=int(args[0]),
                 y=int(args[1]),
-                time=int(args[2]),
-                hit_sound=HitSound(int(args[4]))
+                time=time,
+                hit_sound=HitSound(int(args[4])),
+                parent_tp=parent_tp,
+                child_tp=child_tp
             )
             self.hit_objects.append(obj)
 
