@@ -33,8 +33,7 @@ class OppaiWrapper:
         self._ez = 0
         return False
 
-    # main api
-
+    # NOTE: probably the only function you'll need to use
     def configure(
         self, mode: int = 0,
         acc: float = 0, mods: int = 0,
@@ -42,11 +41,22 @@ class OppaiWrapper:
     ) -> None:
         """Convenience wrapper so you don't have to
            think about the order for clobbering stuff"""
-        if mode: self.set_mode(mode)
-        if mods: self.set_mods(mods)
-        if nmiss: self.set_nmiss(nmiss)
-        if combo: self.set_combo(combo)
-        if acc: self.set_accuracy_percent(acc) # n50, n100s?
+        if self._ez == 0:
+            raise RuntimeError('OppaiWrapper used before oppai-ng initialization!')
+
+        if mode:
+            self.set_mode(mode)
+        if mods:
+            self.set_mods(mods)
+        if nmiss:
+            self.set_nmiss(nmiss)
+        if combo:
+            self.set_combo(combo)
+        if acc:
+            self.set_accuracy_percent(acc) # n50, n100s?
+
+    # NOTE: all of the 1-1 oppai-ng api functions below will assume the library
+    #       has been loaded successfully and ezpp_new has been called.
 
     def calculate(self, osu_file_path: 'Path') -> None: # ezpp()
         osu_file_path_bytestr = str(osu_file_path).encode()
@@ -252,6 +262,9 @@ class OppaiWrapper:
         """Load the oppai-ng static library,
            and register c types to it's api."""
         static_lib = ctypes.cdll.LoadLibrary(lib_path)
+
+        if not static_lib:
+            raise RuntimeError(f'Failed to load {lib_path}.')
 
         # main api
 
