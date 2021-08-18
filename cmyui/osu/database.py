@@ -518,26 +518,29 @@ class ScoresDatabase(osuDatabase):
 
     def _read(self) -> None:
         self.game_version = self.read_i32()
+        num_maps = self.read_i32()
         self.beatmaps.extend([
             self.read_beatmap()
-            for _ in range(self.read_i32())
+            for _ in range(num_maps)
         ])
 
 if __name__ == '__main__':
+    # TODO: is there a nice way to find the currently logged
+    #       in windows user's name or windows user path?
     import time
+
     from cmyui.utils import magnitude_fmt_time
 
+    t1 = time.perf_counter_ns()
+
     # osu!.db
-    st = time.perf_counter_ns()
     beatmaps_db = BeatmapsDatabase.from_file('/mnt/c/Users/cmyui/AppData/Local/osu!/osu!.db')
-    print(f'read osu!.db in {magnitude_fmt_time(time.perf_counter_ns() - st)}')
+    print(f'read osu!.db in {magnitude_fmt_time((t2 := time.perf_counter_ns()) - t1)}')
 
     # collections.db
-    st = time.perf_counter_ns()
     collections_db = CollectionsDatabase.from_file('/mnt/c/Users/cmyui/AppData/Local/osu!/collection.db')
-    print(f'read collection.db in {magnitude_fmt_time(time.perf_counter_ns() - st)}')
+    print(f'read collection.db in {magnitude_fmt_time((t3 := time.perf_counter_ns()) - t2)}')
 
     # scores.db
-    st = time.perf_counter_ns()
     scores_db = ScoresDatabase.from_file('/mnt/c/Users/cmyui/AppData/Local/osu!/scores.db')
-    print(f'read scores.db in {magnitude_fmt_time(time.perf_counter_ns() - st)}')
+    print(f'read scores.db in {magnitude_fmt_time(time.perf_counter_ns() - t3)}')

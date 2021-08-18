@@ -10,14 +10,23 @@
 ```py
 # Example of how to use some of the stuff.
 
-from typing import Optional
 import asyncio
+import time
 import re
+from typing import NoReturn
+from typing import Optional
 
+from cmyui.logging import Ansi
+from cmyui.logging import log
+from cmyui.logging import Rainbow
+from cmyui.logging import RGB
+from cmyui.mysql import AsyncSQLPool
+from cmyui.version import Version
+from cmyui.utils import rstring
+from cmyui.web import Connection
+from cmyui.web import Domain
+from cmyui.web import Server
 from pathlib import Path
-from cmyui import (Version, Server, Domain,
-                   AsyncSQLPool, Connection,
-                   rstring, log, Ansi, AnsiRGB)
 
 version = Version(1, 0, 3)
 debug = True
@@ -52,7 +61,7 @@ async def ingame_getfriends(conn: Connection) -> Optional[bytes]:
     token = conn.headers['token']
 
     global players
-    if not token in headers:
+    if not token in conn.headers:
         return (401, b'Unauthorized')
 
     # returning bytes alone will simply use 200.
@@ -67,7 +76,7 @@ async def ingame_screenshot(conn: Connection) -> Optional[bytes]:
     token = conn.headers['token']
 
     global players
-    if not token in headers:
+    if not token in conn.headers:
         return (401, b'Unauthorized')
 
     p = players[token]
@@ -76,23 +85,16 @@ async def ingame_screenshot(conn: Connection) -> Optional[bytes]:
     with open(ss_file, 'wb') as f:
         f.write(conn.files['ss'])
 
-    # ansi comes in two flavours, Ansi, an enum
-    # including the simple 8bit ansi colour codes;
-    # but also the AnsiRGB class, which can take
-    # either a tuple of 3 ints (r, g, b), or a
-    # single int (will split the bits into r/g/b).
+    # there are three colour options available,
     log(f'{p!r} uploaded {ss_file}.', Ansi.LBLUE)
-    log(f'{p!r} uploaded {ss_file}.', AnsiRGB(0x77ffdd))
+    log(f'{p!r} uploaded {ss_file}.', RGB(0x77ffdd))
+    log(f'{p!r} uploaded {ss_file}.', Rainbow)
 
     return b'Uploaded'
 
 @domain2.route(re.compile('^/u/(?P<id>\d{1,10}$'))
 async def user_profile(conn: Connection) -> Optional[bytes]:
-    # idk how to do frontend lol, just imagine
-    # using that kind of regular expression
-    # syntax to define stuff like user profiles
-    # with ids like this.
-    ...
+    ... # TODO: templates implementation?
 
 # finally, the domains themselves
 # can be added to the server object.
@@ -115,7 +117,7 @@ async def on_start():
     sql = AsyncSQLPool()
     await sql.connect(sql_info)
 
-async def disconnect_inactive_players():
+async def disconnect_inactive_players() -> NoReturn:
     ping_timeout = 120
     global players
 
@@ -126,11 +128,10 @@ async def disconnect_inactive_players():
 
         await asyncio.sleep(ping_timeout)
 
+app.add_task(on_start())
 app.add_tasks({on_start(), disconnect_inactive_players()})
 
-# for the server socket type, both inet4 and unix
-# domains sockets are available, simply by altering
-# the type of the address you put in.
+# both inet & unix sockets are supported.
 server_addr = ('127.0.0.1', 5001)  # inet4
 server_addr = '/tmp/myserver.sock' # unix
 

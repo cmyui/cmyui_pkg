@@ -11,8 +11,11 @@ from typing import overload
 from zoneinfo import ZoneInfo
 
 from .utils import get_timestamp
+from .utils import rainbow_color_stops
 
-__all__ = ('Ansi', 'AnsiRGB', 'printc', 'set_timezone', 'log')
+__all__ = ('Ansi', 'RGB', 'Rainbow', 'printc',
+           '_fmt_rainbow_', 'print_rainbow',
+           'set_timezone', 'log')
 
 class Ansi(IntEnum):
     # Default colours
@@ -41,7 +44,7 @@ class Ansi(IntEnum):
     def __repr__(self) -> str:
         return f'\x1b[{self.value}m'
 
-class AnsiRGB:
+class RGB:
     @overload
     def __init__(self, rgb: int) -> None: ...
     @overload
@@ -60,13 +63,16 @@ class AnsiRGB:
             self.g = (rgb >> 8) & 0xff
             self.r = (rgb >> 16) & 0xff
         else:
-            raise ValueError('Incorrect params for AnsiRGB.')
+            raise ValueError('Incorrect params for RGB.')
 
     @lru_cache(maxsize=64)
     def __repr__(self) -> str:
         return f'\x1b[38;2;{self.r};{self.g};{self.b}m'
 
-Ansi_T = Union[Ansi, AnsiRGB]
+class _Rainbow: ...
+Rainbow = _Rainbow()
+
+Colour_Types = Union[Ansi, RGB, _Rainbow]
 
 stdout_write = sys.stdout.write
 stdout_flush = sys.stdout.flush
@@ -74,17 +80,27 @@ stdout_flush = sys.stdout.flush
 _gray = repr(Ansi.GRAY)
 _reset = repr(Ansi.RESET)
 
-def printc(s: str, col: Ansi_T, end: str = '\n') -> None:
+def printc(msg: str, col: Colour_Types, end: str = '\n') -> None:
     """Print a string, in a specified ansi colour."""
-    stdout_write(f'{col!r}{s}{_reset}{end}')
+    stdout_write(f'{col!r}{msg}{_reset}{end}')
     stdout_flush()
 
+def _fmt_rainbow(msg: str, end: float = 2 / 3) -> None:
+    cols = [RGB(*map(int, rgb)) for rgb in rainbow_color_stops(n=len(msg), end=end)]
+    return ''.join([f'{cols[i]!r}{c}' for i, c in enumerate(msg)]) + repr(Ansi.RESET)
+
+def print_rainbow(msg: str, rainbow_end: float = 2 / 3, end: str = '\n') -> None:
+    stdout_write(f'{_fmt_rainbow(msg, rainbow_end)}{end}')
+    stdout_flush()
+
+# TODO: better solution than this; this at least requires the
+# iana/tzinfo database to be installed, meaning it's limited.
 _log_tz = ZoneInfo('GMT') # default
 def set_timezone(tz: tzinfo) -> None:
     global _log_tz
     _log_tz = tz
 
-def log(msg: str, col: Optional[Ansi_T] = None,
+def log(msg: str, col: Optional[Colour_Types] = None,
         file: Optional[str] = None, end: str = '\n') -> None:
     """\
     Print a string, in a specified ansi colour with timestamp.
@@ -96,7 +112,11 @@ def log(msg: str, col: Optional[Ansi_T] = None,
     ts_short = get_timestamp(full=False, tz=_log_tz)
 
     if col:
-        stdout_write(f'{_gray}[{ts_short}] {col!r}{msg}{_reset}{end}')
+        if col is Rainbow:
+            print_rainbow(msg, end=end)
+        else:
+            # normal colour
+            stdout_write(f'{_gray}[{ts_short}] {col!r}{msg}{_reset}{end}')
     else:
         stdout_write(f'{_gray}[{ts_short}]{_reset} {msg}{end}')
 
