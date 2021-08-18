@@ -26,9 +26,9 @@ from typing import Optional
 from typing import Union
 
 from .logging import Ansi
-from .logging import AnsiRGB
 from .logging import log
 from .logging import printc
+from .logging import RGB
 from .utils import magnitude_fmt_time
 
 __all__ = (
@@ -627,6 +627,10 @@ class Server:
                 if os.path.exists(addr):
                     os.remove(addr)
 
+            # TODO: this whole section is implemented pretty horribly,
+            # there's almost certainly a way to use loop.add_reader rather
+            # than using select, and the rest is a result of using select.
+
             # read/write signal listening socks
             sig_rsock, sig_wsock = os.pipe()
             os.set_blocking(sig_wsock, False)
@@ -641,7 +645,7 @@ class Server:
                 os.chmod(addr, 0o777)
 
             lsock.listen(self.max_conns)
-            log(f'-> Listening @ {addr}', AnsiRGB(0x00ff7f))
+            log(f'-> Listening @ {addr}', RGB(0x00ff7f))
 
             # TODO: terminal input support (tty, termios fuckery)
             # though, tbh this should be moved into gulag as it's

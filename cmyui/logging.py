@@ -14,7 +14,7 @@ from .utils import get_timestamp
 from .utils import rainbow_color_stops
 
 __all__ = ('Ansi', 'RGB', 'Rainbow', 'printc',
-           '_fmt_rainbow_', 'print_rainbow',
+           '_fmt_rainbow', 'print_rainbow',
            'set_timezone', 'log')
 
 class Ansi(IntEnum):
