@@ -6,7 +6,6 @@
 import asyncio
 import gzip
 import http
-import importlib
 import inspect
 import os
 import re
@@ -586,16 +585,12 @@ class Server:
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                # no event loop running, we need to make our own
-                if spec := importlib.util.find_spec('uvloop'):
-                    # use uvloop if it's already installed
-                    # TODO: could make this configurable
-                    # incase people want to disable it
-                    # for their own use-cases?
-                    uvloop = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(uvloop)
-
-                    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+                try:
+                    import uvloop
+                except ModuleNotFoundError:
+                    pass
+                else:
+                    uvloop.install()
 
                 loop = asyncio.new_event_loop()
 
